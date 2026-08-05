@@ -1,0 +1,3164 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Estudo Organizado</title>
+    <meta name="description" content="Organização acadêmica e rotina de estudos para estudantes de Psicologia." />
+
+    <link rel="manifest" href="./manifest.json" />
+    <meta name="theme-color" content="#6D4AA6" />
+    <link rel="icon" href="./icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Estudo Organizado" />
+
+    <style>
+      /* Zera a margem padrão do navegador — sem isso sobra uma borda
+         branca ao redor da tela de login/app em telas grandes. */
+      html, body { margin: 0; padding: 0; }
+    </style>
+
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin></script>
+
+    <!-- Firebase (SDK "compat" — funciona com <script> comum, sem precisar de build/npm) -->
+    <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
+    <script>
+      const firebaseConfig = {
+        apiKey: "AIzaSyDtE2Yi9isqkEBP5R9r7G_IXjvCqvmHjqA",
+        authDomain: "estudo-organizado-e4a05.firebaseapp.com",
+        projectId: "estudo-organizado-e4a05",
+        storageBucket: "estudo-organizado-e4a05.firebasestorage.app",
+        messagingSenderId: "144906513552",
+        appId: "1:144906513552:web:5b11291a27c7b84b713c15",
+      };
+      firebase.initializeApp(firebaseConfig);
+      // Deixa auth e o provedor do Google disponíveis globalmente —
+      // é o que a tela de login (LoginScreen, dentro do app) usa.
+      window.firebaseAuth = firebase.auth();
+      window.firebaseGoogleProvider = new firebase.auth.GoogleAuthProvider();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+const { useState, useEffect, useMemo, useCallback, useRef } = React;
+
+/* ============================================================
+   ESTUDO ORGANIZADO
+   Etapas 1-4: estrutura, identidade visual, matérias, conteúdos,
+   tarefas, provas e trabalhos, calendário, visão geral, estudos,
+   revisões e notas — todos conectados por um único estado real,
+   persistido em window.storage.
+   ============================================================ */
+
+const FONT_IMPORT = `@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,500&family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;1,500&display=swap');`;
+
+const TOKENS = `
+  --bg: #F7F4FA;
+  --bg-alt: #ECE4F7;
+  --surface: #FFFFFF;
+  --surface-hover: #F8F4FC;
+  --border: #DCCEEC;
+  --border-soft: #E9DEF5;
+  --text: #2C2340;
+  --text-soft: #574B70;
+  --text-mute: #837799;
+  --lavender: #9B82C9;
+  --lavender-deep: #6D4AA6;
+  --lilac: #C6A9E5;
+  --purple-soft: #7B5AA8;
+  --accent-mint: #5C9A79;
+  --accent-mint-bg: #E4F0E9;
+  --accent-peach: #C97C46;
+  --accent-peach-bg: #F5E7DC;
+  --accent-rose: #B15F73;
+  --accent-rose-bg: #F3E2E7;
+  --accent-sky: #4F7FAE;
+  --accent-sky-bg: #E1EBF4;
+  --accent-honey: #B78A2E;
+  --accent-honey-bg: #F3EAD3;
+  --danger: #B95561;
+  --danger-bg: #F5E4E6;
+  --success: #45895F;
+  --success-bg: #E1EFE6;
+  --warning: #AD7A2E;
+  --warning-bg: #F3E9D5;
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --shadow-sm: 0 1px 2px rgba(44, 35, 64, 0.08);
+  --shadow-md: 0 4px 16px rgba(44, 35, 64, 0.10);
+  --shadow-lg: 0 12px 40px rgba(44, 35, 64, 0.18);
+`;
+
+/* ---------------- storage helpers ---------------- */
+const STORAGE_KEY = "estudo-organizado:data:v1";
+
+const DEFAULT_SEMESTERS = [
+  { id: "s1", label: "1º semestre" }, { id: "s2", label: "2º semestre" },
+  { id: "s3", label: "3º semestre" }, { id: "s4", label: "4º semestre" },
+  { id: "s5", label: "5º semestre" }, { id: "s6", label: "6º semestre" },
+  { id: "s7", label: "7º semestre" }, { id: "s8", label: "8º semestre" },
+  { id: "s9", label: "9º semestre" }, { id: "s10", label: "10º semestre" },
+];
+
+const WEEKDAYS = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"];
+
+const DEFAULT_QUICK_LINKS = [
+  { id: "faculty", kind: "faculty", label: "", url: "" },
+  { id: "drive1", kind: "drive", label: "", url: "" },
+  { id: "drive2", kind: "drive", label: "", url: "" },
+  { id: "drive3", kind: "drive", label: "", url: "" },
+];
+
+const DEFAULT_DATA = {
+  settings: { userName: "", selectedSemesterId: "s1", currentSemesterId: "s1" },
+  semesters: DEFAULT_SEMESTERS,
+  quickLinks: DEFAULT_QUICK_LINKS,
+  subjects: [],
+  tasks: [],
+  exams: [],
+  contents: [],
+  studySessions: [],
+  revisions: [],
+  schedule: [],
+  internships: [],
+  internshipLogs: [],
+  absences: [],
+  vacations: [],
+  holidays: [],
+  cancelledClasses: [],
+};
+
+function uid() {
+  return Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+}
+
+function todayISO() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.toISOString().slice(0, 10);
+}
+
+function fmtDate(iso) {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  return dt.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
+}
+
+function fmtDateFull(iso) {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  return dt.toLocaleDateString("pt-BR", { day: "numeric", month: "long" });
+}
+
+function fmtDateLong(iso) {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  return dt.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long", year: "numeric" });
+}
+
+function fmtDayButton(iso) {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  const month = dt.toLocaleDateString("pt-BR", { month: "long" });
+  return `${d} de ${month.charAt(0).toUpperCase()}${month.slice(1)}`;
+}
+
+function isWithinRange(iso, startIso, endIso) {
+  if (!iso || !startIso || !endIso) return false;
+  return iso >= startIso && iso <= endIso;
+}
+
+function daysDiff(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  const target = new Date(y, m - 1, d);
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  return Math.round((target - now) / 86400000);
+}
+
+const SUBJECT_COLORS = [
+  "#7B5AA8", "#6D4AA6", "#4F7FAE", "#5C9A79", "#C97C46",
+  "#B78A2E", "#B15F73", "#54739E", "#6E9166", "#A0672E",
+  "#8A5A8F", "#3F7D8C",
+];
+
+/* ============================================================
+   PERSISTENCE HOOK
+   ============================================================ */
+/* Fora do Claude (ex: GitHub Pages), window.storage não existe — usamos
+   localStorage do navegador nesse caso, para o app funcionar normalmente. */
+const localStorageAdapter = {
+  async get(key) {
+    const raw = window.localStorage.getItem(key);
+    return raw ? { key, value: raw } : null;
+  },
+  async set(key, value) {
+    window.localStorage.setItem(key, value);
+    return { key, value };
+  },
+};
+const storage = (typeof window !== "undefined" && window.storage) ? window.storage : localStorageAdapter;
+
+function useAppData() {
+  const [data, setData] = useState(DEFAULT_DATA);
+  const [loaded, setLoaded] = useState(false);
+  const [saveState, setSaveState] = useState("idle"); // idle | saving | saved | error
+  const saveTimer = useRef(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await storage.get(STORAGE_KEY, false);
+        if (!cancelled) {
+          if (result && result.value) {
+            const parsed = JSON.parse(result.value);
+            let mergedSemesters = parsed.semesters && parsed.semesters.length ? parsed.semesters : DEFAULT_DATA.semesters;
+            ["s9", "s10"].forEach((id, i) => {
+              if (!mergedSemesters.find((s) => s.id === id)) mergedSemesters = [...mergedSemesters, { id, label: `${9 + i}º semestre` }];
+            });
+            setData({
+              ...DEFAULT_DATA, ...parsed,
+              settings: { ...DEFAULT_DATA.settings, ...(parsed.settings || {}) },
+              semesters: mergedSemesters,
+              schedule: parsed.schedule || [],
+              internships: parsed.internships || [],
+              internshipLogs: parsed.internshipLogs || [],
+              absences: parsed.absences || [],
+              vacations: parsed.vacations || [],
+              holidays: parsed.holidays || [],
+              cancelledClasses: parsed.cancelledClasses || [],
+              quickLinks: parsed.quickLinks && parsed.quickLinks.length === 4 ? parsed.quickLinks : DEFAULT_QUICK_LINKS,
+            });
+          }
+          setLoaded(true);
+        }
+      } catch (e) {
+        if (!cancelled) setLoaded(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const persist = useCallback((next) => {
+    setData(next);
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    setSaveState("saving");
+    saveTimer.current = setTimeout(async () => {
+      try {
+        const result = await storage.set(STORAGE_KEY, JSON.stringify(next), false);
+        setSaveState(result ? "saved" : "error");
+      } catch (e) {
+        setSaveState("error");
+      }
+    }, 350);
+  }, []);
+
+  return { data, setData: persist, loaded, saveState };
+}
+
+/* ============================================================
+   ICONS (inline svg, minimal set, consistent stroke)
+   ============================================================ */
+const Icon = ({ name, size = 18, ...props }) => {
+  const common = { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.7, strokeLinecap: "round", strokeLinejoin: "round", ...props };
+  switch (name) {
+    case "overview": return <svg {...common}><rect x="3" y="3" width="7" height="9" rx="2"/><rect x="14" y="3" width="7" height="5" rx="2"/><rect x="14" y="12" width="7" height="9" rx="2"/><rect x="3" y="16" width="7" height="5" rx="2"/></svg>;
+    case "subjects": return <svg {...common}><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v17H6.5A2.5 2.5 0 0 0 4 21.5v-17Z"/><path d="M4 17h16"/></svg>;
+    case "tasks": return <svg {...common}><path d="m5 12 4 4 10-10"/></svg>;
+    case "exams": return <svg {...common}><path d="M9 2h6l4 4v16H5V2h4Z" transform="translate(0.5)"/><path d="M9 11h6M9 15h6M9 7h2"/></svg>;
+    case "calendar": return <svg {...common}><rect x="3" y="4.5" width="18" height="16" rx="2.5"/><path d="M16 2.5v4M8 2.5v4M3 9.5h18"/></svg>;
+    case "contents": return <svg {...common}><path d="M4 19.5V6a2 2 0 0 1 2-2h9l5 5v10.5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/><path d="M14 4v5h5"/></svg>;
+    case "study": return <svg {...common}><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>;
+    case "review": return <svg {...common}><path d="M3 12a9 9 0 1 1 3 6.7"/><path d="M3 12V7M3 12h5"/></svg>;
+    case "grades": return <svg {...common}><path d="M4 19V10M12 19V4M20 19v-7"/></svg>;
+    case "settings": return <svg {...common}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21a2 2 0 1 1-4 0v-.2a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.6V3a2 2 0 1 1 4 0v.2a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.6 1H21a2 2 0 1 1 0 4h-.2a1.7 1.7 0 0 0-1.5 1Z"/></svg>;
+    case "plus": return <svg {...common}><path d="M12 5v14M5 12h14"/></svg>;
+    case "close": return <svg {...common}><path d="M18 6 6 18M6 6l12 12"/></svg>;
+    case "edit": return <svg {...common}><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>;
+    case "trash": return <svg {...common}><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0-.8 13.2A2 2 0 0 1 15.2 21H8.8a2 2 0 0 1-2-1.8L6 6"/></svg>;
+    case "chevronLeft": return <svg {...common}><path d="m15 18-6-6 6-6"/></svg>;
+    case "chevronRight": return <svg {...common}><path d="m9 18 6-6-6-6"/></svg>;
+    case "check": return <svg {...common}><path d="m5 12 4 4 10-10"/></svg>;
+    case "undo": return <svg {...common}><path d="M3 7v6h6"/><path d="M3.5 13a9 9 0 1 0 2-8.4L3 9"/></svg>;
+    case "clock": return <svg {...common}><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>;
+    case "flag": return <svg {...common}><path d="M5 21V4"/><path d="M5 4h13l-3 4.5L18 13H5"/></svg>;
+    case "menu": return <svg {...common}><path d="M4 6h16M4 12h16M4 18h16"/></svg>;
+    case "link": return <svg {...common}><path d="M9 17H7A5 5 0 0 1 7 7h2M15 7h2a5 5 0 1 1 0 10h-2M8 12h8"/></svg>;
+    case "file": return <svg {...common}><path d="M6 2h9l5 5v15H6Z"/><path d="M15 2v5h5"/></svg>;
+    case "video": return <svg {...common}><rect x="2" y="5" width="15" height="14" rx="2"/><path d="m17 10 5-3v10l-5-3"/></svg>;
+    case "image": return <svg {...common}><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>;
+    case "note": return <svg {...common}><path d="M4 4h16v16H4Z"/><path d="M8 9h8M8 13h5"/></svg>;
+    case "spark": return <svg {...common}><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M18 6l-2.5 2.5M8.5 15.5 6 18"/></svg>;
+    case "search": return <svg {...common}><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>;
+    case "eye": return <svg {...common}><path d="M1.5 12S5 5 12 5s10.5 7 10.5 7-3.5 7-10.5 7S1.5 12 1.5 12Z"/><circle cx="12" cy="12" r="3"/></svg>;
+    case "eyeOff": return <svg {...common}><path d="M3 3l18 18"/><path d="M10.6 5.1A10.9 10.9 0 0 1 12 5c7 0 10.5 7 10.5 7a13.4 13.4 0 0 1-3.1 3.9M6.6 6.6C3.4 8.6 1.5 12 1.5 12S5 19 12 19a10.7 10.7 0 0 0 4.1-.8"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>;
+    case "school": return <svg {...common}><path d="m2 8 10-5 10 5-10 5-10-5Z"/><path d="M6 10.5V16c0 1.5 2.7 3 6 3s6-1.5 6-3v-5.5"/><path d="M22 8v7"/></svg>;
+    case "grid": return <svg {...common}><rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/></svg>;
+    case "absence": return <svg {...common}><circle cx="12" cy="8" r="3.2"/><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6"/><path d="m4 4 16 16"/></svg>;
+    case "sun": return <svg {...common}><circle cx="12" cy="12" r="4.2"/><path d="M12 3v2.2M12 18.8V21M4.2 12H2M22 12h-2.2M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6"/></svg>;
+    case "bolt": return <svg {...common}><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z"/></svg>;
+    case "briefcase": return <svg {...common}><rect x="2.5" y="7" width="19" height="13" rx="2.2"/><path d="M8 7V5.5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2V7"/><path d="M2.5 13h19"/></svg>;
+    case "cloud": return <svg {...common}><path d="M17.5 19H7a4.5 4.5 0 0 1-1-8.9 5.5 5.5 0 0 1 10.8-1.7A4 4 0 0 1 17.5 19Z"/></svg>;
+    case "presentation": return <svg {...common}><path d="M3 4h18M4 4v11a1 1 0 0 0 1 1h4l-2 4M20 4v11a1 1 0 0 1-1 1h-4l2 4"/></svg>;
+    case "doc": return <svg {...common}><path d="M6 2h9l5 5v15H6Z"/><path d="M15 2v5h5M9 12h6M9 16h6"/></svg>;
+    case "play": return <svg {...common}><path d="m7 4 13 8-13 8Z"/></svg>;
+    case "pause": return <svg {...common}><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>;
+    case "stop": return <svg {...common}><rect x="5" y="5" width="14" height="14" rx="2"/></svg>;
+    default: return null;
+  }
+};
+
+/* ============================================================
+   SMALL UI PRIMITIVES
+   ============================================================ */
+function Button({ children, variant = "primary", size = "md", icon, onClick, type = "button", style, disabled }) {
+  const base = {
+    display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7,
+    fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, cursor: disabled ? "not-allowed" : "pointer",
+    border: "1px solid transparent", transition: "all .15s ease", whiteSpace: "nowrap",
+    opacity: disabled ? 0.5 : 1,
+  };
+  const sizes = { sm: { fontSize: 13, padding: "7px 12px", borderRadius: 9 }, md: { fontSize: 14, padding: "10px 16px", borderRadius: 11 } };
+  const variants = {
+    primary: { background: "linear-gradient(135deg, var(--lavender-deep), var(--purple-soft))", color: "#fff", boxShadow: "var(--shadow-sm)" },
+    secondary: { background: "var(--surface)", color: "var(--text)", border: "1px solid var(--border)" },
+    ghost: { background: "transparent", color: "var(--text-soft)" },
+    danger: { background: "var(--danger-bg)", color: "var(--danger)" },
+    subtle: { background: "var(--bg-alt)", color: "var(--lavender-deep)" },
+  };
+  return (
+    <button type={type} disabled={disabled} onClick={onClick} style={{ ...base, ...sizes[size], ...variants[variant], ...style }}>
+      {icon && <Icon name={icon} size={size === "sm" ? 15 : 16} />}
+      {children}
+    </button>
+  );
+}
+
+function Badge({ children, color, bg }) {
+  return (
+    <span style={{
+      display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600,
+      padding: "3px 9px", borderRadius: 999, color: color || "var(--lavender-deep)", background: bg || "var(--bg-alt)",
+      fontFamily: "'Plus Jakarta Sans', sans-serif", lineHeight: 1.4,
+    }}>{children}</span>
+  );
+}
+
+function SubjectDot({ color, size = 9 }) {
+  return <span style={{ width: size, height: size, borderRadius: "50%", background: color, flexShrink: 0, display: "inline-block" }} />;
+}
+
+function EmptyState({ title, subtitle, actionLabel, onAction, icon = "spark" }) {
+  return (
+    <div style={{
+      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+      textAlign: "center", padding: "56px 24px", gap: 10, background: "var(--surface)",
+      border: "1px dashed var(--border)", borderRadius: "var(--radius-lg)",
+    }}>
+      <div style={{
+        width: 52, height: 52, borderRadius: "50%", background: "var(--bg-alt)",
+        display: "flex", alignItems: "center", justifyContent: "center", color: "var(--lavender-deep)", marginBottom: 4,
+      }}><Icon name={icon} size={24} /></div>
+      <div style={{ fontFamily: "'Fraunces', serif", fontSize: 19, color: "var(--text)", fontWeight: 500 }}>{title}</div>
+      <div style={{ fontSize: 14, color: "var(--text-mute)", maxWidth: 320 }}>{subtitle}</div>
+      {actionLabel && <div style={{ marginTop: 10 }}><Button icon="plus" onClick={onAction}>{actionLabel}</Button></div>}
+    </div>
+  );
+}
+
+function Modal({ open, onClose, title, children, width = 480 }) {
+  if (!open) return null;
+  return (
+    <div onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }} style={{
+      position: "fixed", inset: 0, background: "rgba(56, 47, 77, 0.28)", backdropFilter: "blur(2px)",
+      display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16,
+    }}>
+      <div style={{
+        background: "var(--surface)", borderRadius: "var(--radius-lg)", width: "100%", maxWidth: width,
+        maxHeight: "88vh", overflowY: "auto", boxShadow: "var(--shadow-lg)", border: "1px solid var(--border-soft)",
+      }}>
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 22px",
+          borderBottom: "1px solid var(--border-soft)", position: "sticky", top: 0, background: "var(--surface)",
+          borderRadius: "var(--radius-lg) var(--radius-lg) 0 0", zIndex: 2,
+        }}>
+          <div style={{ fontFamily: "'Fraunces', serif", fontSize: 18, fontWeight: 500, color: "var(--text)" }}>{title}</div>
+          <button onClick={onClose} style={{ background: "var(--bg-alt)", border: "none", borderRadius: 8, width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "var(--text-soft)" }}>
+            <Icon name="close" size={16} />
+          </button>
+        </div>
+        <div style={{ padding: 22 }}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+const fieldStyle = {
+  width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border)",
+  fontSize: 14, fontFamily: "'Plus Jakarta Sans', sans-serif", color: "var(--text)", background: "var(--bg)",
+  outline: "none", boxSizing: "border-box",
+};
+const labelStyle = { fontSize: 12.5, fontWeight: 600, color: "var(--text-soft)", marginBottom: 6, display: "block" };
+
+function Field({ label, children }) {
+  return <div style={{ marginBottom: 15 }}><label style={labelStyle}>{label}</label>{children}</div>;
+}
+
+function PasswordField({ value, onChange, placeholder, required, minLength, autoComplete }) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <div style={{ position: "relative" }}>
+      <input
+        type={visible ? "text" : "password"} value={value} onChange={onChange} placeholder={placeholder}
+        required={required} minLength={minLength} autoComplete={autoComplete}
+        style={{ ...fieldStyle, paddingRight: 40 }}
+      />
+      <button type="button" onClick={() => setVisible((v) => !v)} aria-label={visible ? "Ocultar senha" : "Mostrar senha"} style={{
+        position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", background: "none", border: "none",
+        cursor: "pointer", color: "var(--text-mute)", display: "flex", alignItems: "center", padding: 6,
+      }}>
+        <Icon name={visible ? "eyeOff" : "eye"} size={17} />
+      </button>
+    </div>
+  );
+}
+
+function Select({ value, onChange, options, placeholder }) {
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)} style={{ ...fieldStyle, cursor: "pointer" }}>
+      {placeholder && <option value="">{placeholder}</option>}
+      {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+    </select>
+  );
+}
+
+function ConfirmDialog({ open, onCancel, onConfirm, message }) {
+  return (
+    <Modal open={open} onClose={onCancel} title="Confirmar exclusão" width={380}>
+      <p style={{ fontSize: 14, color: "var(--text-soft)", marginTop: 0, lineHeight: 1.6 }}>{message}</p>
+      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
+        <Button variant="secondary" size="sm" onClick={onCancel}>Cancelar</Button>
+        <Button variant="danger" size="sm" onClick={onConfirm}>Excluir</Button>
+      </div>
+    </Modal>
+  );
+}
+
+/* ============================================================
+   NAVIGATION CONFIG
+   ============================================================ */
+const NAV = [
+  { key: "overview", label: "Visão Geral", icon: "overview" },
+  { key: "subjects", label: "Matérias", icon: "subjects" },
+  { key: "schedule", label: "Grade de Horários", icon: "grid" },
+  { key: "tasks", label: "Tarefas", icon: "tasks" },
+  { key: "exams", label: "Provas e Trabalhos", icon: "exams" },
+  { key: "absences", label: "Faltas", icon: "absence" },
+  { key: "calendar", label: "Calendário", icon: "calendar" },
+  { key: "contents", label: "Conteúdos", icon: "contents" },
+  { key: "study", label: "Estudos", icon: "study" },
+  { key: "revisions", label: "Revisões", icon: "review" },
+  { key: "internships", label: "Estágio", icon: "briefcase" },
+  { key: "grades", label: "Notas e Desempenho", icon: "grades" },
+  { key: "settings", label: "Configurações", icon: "settings" },
+];
+
+const PRIORITIES = { alta: { label: "Alta", color: "var(--danger)", bg: "var(--danger-bg)" }, media: { label: "Média", color: "var(--warning)", bg: "var(--warning-bg)" }, baixa: { label: "Baixa", color: "var(--success)", bg: "var(--success-bg)" } };
+const EXAM_TYPES = ["P1", "P2", "T1", "T2"];
+
+/* ============================================================
+   ROOT APP
+   ============================================================ */
+/* ============================================================
+   LOGIN SCREEN
+   Tela de login pronta visualmente. Os dois pontos marcados com
+   TODO são onde a integração real com o Firebase entra quando
+   este código for exportado para o projeto no GitHub — dentro
+   do preview do Claude não é possível instalar pacotes externos
+   como o `firebase`, então aqui ela apenas avança para o app.
+   ============================================================ */
+function LoginScreen({ onContinue }) {
+  const [mode, setMode] = useState("login"); // 'login' | 'signup'
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [forgotMsg, setForgotMsg] = useState(false);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  // Quando o SDK do Firebase (compat) está carregado no index.html, window.firebaseAuth
+  // e window.firebaseGoogleProvider existem e o login é real. Caso contrário (ex: aqui
+  // dentro do preview do Claude), o app segue direto — não trava a demonstração.
+  const hasFirebase = typeof window !== "undefined" && window.firebaseAuth;
+
+  const friendlyError = (code) => ({
+    "auth/invalid-email": "E-mail inválido.",
+    "auth/user-not-found": "Não existe conta com esse e-mail.",
+    "auth/wrong-password": "Senha incorreta.",
+    "auth/invalid-credential": "E-mail ou senha incorretos.",
+    "auth/email-already-in-use": "Já existe uma conta com esse e-mail.",
+    "auth/weak-password": "A senha precisa ter pelo menos 6 caracteres.",
+  }[code] || "Não foi possível entrar. Tente novamente.");
+
+  const handleEmailSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+    if (!hasFirebase) { onContinue(); return; }
+    setBusy(true);
+    try {
+      if (mode === "login") {
+        await window.firebaseAuth.signInWithEmailAndPassword(email, password);
+      } else {
+        await window.firebaseAuth.createUserWithEmailAndPassword(email, password);
+      }
+      onContinue();
+    } catch (err) {
+      setError(friendlyError(err.code));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    setError("");
+    if (!hasFirebase) { onContinue(); return; }
+    setBusy(true);
+    try {
+      await window.firebaseAuth.signInWithPopup(window.firebaseGoogleProvider);
+      onContinue();
+    } catch (err) {
+      setError(friendlyError(err.code));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{
+      minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
+      background: "linear-gradient(160deg, var(--bg) 0%, var(--bg-alt) 100%)", fontFamily: "'Plus Jakarta Sans', sans-serif",
+    }}>
+      <style>{`${FONT_IMPORT}\n:root{${TOKENS}}\nhtml,body{margin:0;padding:0;}\ninput::placeholder{color:var(--text-mute);}\ninput:focus{border-color:var(--lavender-deep) !important; box-shadow:0 0 0 3px rgba(143,121,196,0.14);}`}</style>
+
+      <div style={{ width: "100%", maxWidth: 380 }}>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 26 }}>
+          <div style={{
+            width: 56, height: 56, borderRadius: 16, background: "linear-gradient(135deg, var(--lavender-deep), var(--purple-soft))",
+            display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "var(--shadow-md)", marginBottom: 14,
+          }}>
+            <span style={{ fontFamily: "'Fraunces', serif", fontSize: 32, fontWeight: 500, color: "#fff", lineHeight: 1 }}>Ψ</span>
+          </div>
+          <div style={{ fontFamily: "'Fraunces', serif", fontSize: 24, fontWeight: 500, color: "var(--text)" }}>Estudo Organizado</div>
+          <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text-mute)", marginTop: 3 }}>para estudantes de Psicologia</div>
+        </div>
+
+        <form onSubmit={handleEmailSubmit} style={{
+          background: "var(--surface)", border: "1px solid var(--border-soft)", borderRadius: "var(--radius-lg)",
+          padding: 26, boxShadow: "var(--shadow-lg)", display: "flex", flexDirection: "column", gap: 14,
+        }}>
+          <div style={{ display: "flex", background: "var(--bg-alt)", borderRadius: 11, padding: 3, marginBottom: 4 }}>
+            <button type="button" onClick={() => setMode("login")} style={{
+              flex: 1, padding: "8px 0", borderRadius: 9, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 700,
+              background: mode === "login" ? "var(--surface)" : "transparent", color: mode === "login" ? "var(--lavender-deep)" : "var(--text-mute)",
+              boxShadow: mode === "login" ? "var(--shadow-sm)" : "none",
+            }}>Entrar</button>
+            <button type="button" onClick={() => setMode("signup")} style={{
+              flex: 1, padding: "8px 0", borderRadius: 9, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 700,
+              background: mode === "signup" ? "var(--surface)" : "transparent", color: mode === "signup" ? "var(--lavender-deep)" : "var(--text-mute)",
+              boxShadow: mode === "signup" ? "var(--shadow-sm)" : "none",
+            }}>Criar conta</button>
+          </div>
+
+          <Field label="E-mail"><input type="email" required style={fieldStyle} value={email} onChange={(e) => setEmail(e.target.value)} placeholder="voce@email.com" /></Field>
+          <Field label="Senha"><PasswordField required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" autoComplete="current-password" /></Field>
+
+          {mode === "login" && (
+            <button type="button" onClick={() => setForgotMsg(true)} style={{ background: "none", border: "none", color: "var(--lavender-deep)", fontSize: 12.5, fontWeight: 600, cursor: "pointer", textAlign: "right", padding: 0, marginTop: -8 }}>
+              Esqueci minha senha
+            </button>
+          )}
+          {forgotMsg && <div style={{ fontSize: 12, color: "var(--text-mute)", marginTop: -8 }}>Configure a recuperação de senha no seu projeto Firebase (sendPasswordResetEmail).</div>}
+          {error && <div style={{ fontSize: 12.5, color: "var(--danger)", background: "var(--danger-bg)", borderRadius: 8, padding: "8px 10px" }}>{error}</div>}
+
+          <Button type="submit" disabled={busy} style={{ width: "100%", justifyContent: "center", padding: "11px 0" }}>{mode === "login" ? "Entrar" : "Criar conta"}</Button>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "2px 0" }}>
+            <div style={{ flex: 1, height: 1, background: "var(--border-soft)" }} />
+            <span style={{ fontSize: 11.5, color: "var(--text-mute)", fontWeight: 600 }}>ou</span>
+            <div style={{ flex: 1, height: 1, background: "var(--border-soft)" }} />
+          </div>
+
+          <Button type="button" variant="secondary" disabled={busy} onClick={handleGoogleLogin} style={{ width: "100%", justifyContent: "center", padding: "11px 0" }}>
+            <svg width="16" height="16" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.9c1.7-1.57 2.7-3.88 2.7-6.62z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.8.54-1.84.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.96v2.33A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.95 10.7A5.4 5.4 0 0 1 3.67 9c0-.59.1-1.17.28-1.7V4.97H.96A9 9 0 0 0 0 9c0 1.45.35 2.83.96 4.03l2.99-2.33z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.51.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .96 4.97l2.99 2.33C4.66 5.17 6.65 3.58 9 3.58z"/></svg>
+            Continuar com Google
+          </Button>
+        </form>
+
+        <div style={{ textAlign: "center", fontSize: 11.5, color: "var(--text-mute)", marginTop: 16 }}>
+          Pré-visualização — a autenticação real será conectada ao Firebase no seu projeto.
+        </div>
+        <div style={{ textAlign: "center", fontSize: 11.5, color: "var(--text-mute)", marginTop: 6 }}>
+          Precisa de ajuda? <a href="mailto:plamailypainelfinanceiro@gmail.com" style={{ color: "var(--lavender-deep)", fontWeight: 600, textDecoration: "none" }}>plamailypainelfinanceiro@gmail.com</a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+function App() {
+  const { data, setData, loaded, saveState } = useAppData();
+  const [authed, setAuthed] = useState(false);
+  const [authChecked, setAuthChecked] = useState(typeof window === "undefined" || !window.firebaseAuth);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.firebaseAuth) return;
+    const unsubscribe = window.firebaseAuth.onAuthStateChanged((user) => {
+      setAuthed(!!user);
+      setAuthChecked(true);
+    });
+    return unsubscribe;
+  }, []);
+  const [tab, setTab] = useState("overview");
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(typeof window !== "undefined" ? window.innerWidth < 900 : false);
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 900);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  // generic CRUD helpers scoped to a collection key
+  const update = useCallback((patchFn) => {
+    setData((prev) => {
+      const next = typeof patchFn === "function" ? patchFn(prev) : patchFn;
+      return next;
+    });
+  }, [setData]);
+
+  const addItem = (key, item) => update((prev) => ({ ...prev, [key]: [...prev[key], { id: uid(), ...item }] }));
+  const editItem = (key, id, patch) => update((prev) => ({ ...prev, [key]: prev[key].map((it) => (it.id === id ? { ...it, ...patch } : it)) }));
+  const removeItem = (key, id) => update((prev) => {
+    const next = { ...prev, [key]: prev[key].filter((it) => it.id !== id) };
+    // cascade cleanup of references
+    if (key === "subjects") {
+      ["tasks", "exams", "contents", "studySessions", "revisions", "schedule", "absences"].forEach((k) => {
+        next[k] = next[k].filter((it) => it.subjectId !== id);
+      });
+    }
+    if (key === "internships") {
+      next.internshipLogs = next.internshipLogs.filter((l) => l.internshipId !== id);
+    }
+    if (key === "contents") {
+      next.revisions = next.revisions.map((r) => (r.contentId === id ? { ...r, contentId: "" } : r));
+    }
+    return next;
+  });
+
+  const selectedSemesterId = data.settings.selectedSemesterId || data.semesters[0]?.id || "s1";
+  const currentSemesterId = data.settings.currentSemesterId || selectedSemesterId;
+  const setSelectedSemesterId = (id) => update((prev) => ({ ...prev, settings: { ...prev.settings, selectedSemesterId: id } }));
+  const setCurrentSemesterId = (id) => update((prev) => ({ ...prev, settings: { ...prev.settings, currentSemesterId: id } }));
+
+  const scopedData = useMemo(() => {
+    const subjectIds = new Set(data.subjects.filter((s) => s.semesterId === selectedSemesterId).map((s) => s.id));
+    const internshipIds = new Set(data.internships.filter((i) => i.semesterId === selectedSemesterId).map((i) => i.id));
+    return {
+      ...data,
+      subjects: data.subjects.filter((s) => s.semesterId === selectedSemesterId),
+      tasks: data.tasks.filter((t) => subjectIds.has(t.subjectId)),
+      exams: data.exams.filter((e) => subjectIds.has(e.subjectId)),
+      contents: data.contents.filter((c) => subjectIds.has(c.subjectId)),
+      studySessions: data.studySessions.filter((s) => subjectIds.has(s.subjectId)),
+      revisions: data.revisions.filter((r) => subjectIds.has(r.subjectId)),
+      schedule: data.schedule.filter((s) => s.semesterId === selectedSemesterId),
+      internships: data.internships.filter((i) => i.semesterId === selectedSemesterId),
+      internshipLogs: data.internshipLogs.filter((l) => internshipIds.has(l.internshipId)),
+      absences: data.absences.filter((a) => subjectIds.has(a.subjectId)),
+      vacations: data.vacations.filter((v) => v.semesterId === selectedSemesterId),
+      holidays: data.holidays.filter((h) => h.semesterId === selectedSemesterId),
+      cancelledClasses: data.cancelledClasses.filter((c) => c.semesterId === selectedSemesterId),
+    };
+  }, [data, selectedSemesterId]);
+
+  const ctx = {
+    data: scopedData, fullData: data, addItem, editItem, removeItem, update,
+    semesters: data.semesters, selectedSemesterId, setSelectedSemesterId, currentSemesterId, setCurrentSemesterId,
+  };
+
+  if (!loaded || !authChecked) {
+    return (
+      <div style={{ minHeight: 400, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Plus Jakarta Sans', sans-serif", color: "var(--text-mute)" }}>
+        <style>{`:root{${TOKENS}} html,body{margin:0;padding:0;}`}</style>
+        Carregando…
+      </div>
+    );
+  }
+
+  if (!authed) {
+    return <LoginScreen onContinue={() => setAuthed(true)} />;
+  }
+
+  return (
+    <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", color: "var(--text)", background: "var(--bg)", minHeight: "100vh" }}>
+      <style>{`
+        ${FONT_IMPORT}
+        :root { ${TOKENS} }
+        * { box-sizing: border-box; }
+        html, body { margin: 0; padding: 0; }
+        ::selection { background: var(--lilac); }
+        input::placeholder, textarea::placeholder { color: var(--text-mute); }
+        input:focus, select:focus, textarea:focus { border-color: var(--lavender-deep) !important; box-shadow: 0 0 0 3px rgba(143,121,196,0.14); }
+        button:focus-visible, a:focus-visible { outline: 2px solid var(--lavender-deep); outline-offset: 2px; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-thumb { background: var(--lilac); border-radius: 8px; }
+        .eo-nav-item { transition: all .15s ease; }
+        .eo-card { transition: box-shadow .15s ease, transform .15s ease; }
+        @media (max-width: 899px) { .eo-desktop-sidebar { display: none !important; } }
+        @media (min-width: 900px) { .eo-mobile-bar { display: none !important; } }
+      `}</style>
+
+      <div style={{ display: "flex", minHeight: "100vh" }}>
+        {/* DESKTOP SIDEBAR */}
+        <aside className="eo-desktop-sidebar" style={{
+          width: 236, flexShrink: 0, borderRight: "1px solid var(--border-soft)", background: "var(--surface)",
+          display: "flex", flexDirection: "column", padding: "22px 14px", position: "sticky", top: 0, height: "100vh",
+        }}>
+          <Logo />
+          <div style={{ marginTop: 18 }}>
+            <SemesterSwitcher semesters={data.semesters} selectedId={selectedSemesterId} currentId={currentSemesterId} onChange={setSelectedSemesterId} />
+          </div>
+          <button onClick={() => setSearchOpen(true)} style={{
+            display: "flex", alignItems: "center", gap: 9, marginTop: 12, padding: "9px 11px", borderRadius: 11,
+            border: "1px solid var(--border-soft)", background: "var(--bg)", color: "var(--text-mute)", cursor: "pointer",
+            fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 13.5,
+          }}>
+            <Icon name="search" size={16} />
+            Pesquisar…
+          </button>
+          <nav style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 2, flex: 1, overflowY: "auto" }}>
+            {NAV.map((n) => <NavItem key={n.key} n={n} active={tab === n.key} onClick={() => setTab(n.key)} />)}
+          </nav>
+          <SaveIndicator state={saveState} />
+        </aside>
+
+        {/* MOBILE TOP BAR */}
+        <div className="eo-mobile-bar" style={{
+          position: "fixed", top: 0, left: 0, right: 0, zIndex: 100, background: "var(--surface)",
+          borderBottom: "1px solid var(--border-soft)", padding: "12px 16px", display: "flex",
+          alignItems: "center", justifyContent: "space-between",
+        }}>
+          <Logo compact />
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => setSearchOpen(true)} style={{ background: "var(--bg-alt)", border: "none", borderRadius: 9, width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--lavender-deep)" }}>
+              <Icon name="search" size={18} />
+            </button>
+            <button onClick={() => setMobileNavOpen(true)} style={{ background: "var(--bg-alt)", border: "none", borderRadius: 9, width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--lavender-deep)" }}>
+              <Icon name="menu" size={19} />
+            </button>
+          </div>
+        </div>
+
+        {mobileNavOpen && (
+          <div onMouseDown={(e) => { if (e.target === e.currentTarget) setMobileNavOpen(false); }} style={{ position: "fixed", inset: 0, background: "rgba(56,47,77,0.3)", zIndex: 200, display: "flex" }}>
+            <div style={{ width: 250, background: "var(--surface)", padding: "20px 14px", height: "100%", display: "flex", flexDirection: "column" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <Logo compact />
+                <button onClick={() => setMobileNavOpen(false)} style={{ background: "var(--bg-alt)", border: "none", borderRadius: 8, width: 30, height: 30 }}><Icon name="close" size={15} /></button>
+              </div>
+              <div style={{ marginTop: 18 }}>
+                <SemesterSwitcher semesters={data.semesters} selectedId={selectedSemesterId} currentId={currentSemesterId} onChange={setSelectedSemesterId} />
+              </div>
+              <nav style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 2, overflowY: "auto" }}>
+                {NAV.map((n) => <NavItem key={n.key} n={n} active={tab === n.key} onClick={() => { setTab(n.key); setMobileNavOpen(false); }} />)}
+              </nav>
+            </div>
+          </div>
+        )}
+
+        {/* MAIN */}
+        <main style={{ flex: 1, minWidth: 0, padding: isMobile ? "72px 16px 90px" : "30px 36px 60px", maxWidth: 1180, margin: "0 auto", width: "100%" }}>
+          {tab === "overview" && <Overview ctx={ctx} setTab={setTab} />}
+          {tab === "subjects" && <SubjectsView ctx={ctx} />}
+          {tab === "schedule" && <ScheduleView ctx={ctx} />}
+          {tab === "tasks" && <TasksView ctx={ctx} />}
+          {tab === "exams" && <ExamsView ctx={ctx} />}
+          {tab === "absences" && <AbsencesView ctx={ctx} />}
+          {tab === "calendar" && <CalendarView ctx={ctx} />}
+          {tab === "contents" && <ContentsView ctx={ctx} />}
+          {tab === "study" && <StudyView ctx={ctx} />}
+          {tab === "revisions" && <RevisionsView ctx={ctx} />}
+          {tab === "internships" && <InternshipsView ctx={ctx} />}
+          {tab === "grades" && <GradesView ctx={ctx} />}
+          {tab === "settings" && <SettingsView ctx={ctx} />}
+        </main>
+
+        {/* MOBILE BOTTOM NAV (subset) */}
+        <div className="eo-mobile-bar" style={{
+          position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 100, background: "var(--surface)",
+          borderTop: "1px solid var(--border-soft)", display: "flex", padding: "6px 4px", justifyContent: "space-around",
+        }}>
+          {NAV.slice(0, 5).map((n) => (
+            <button key={n.key} onClick={() => setTab(n.key)} style={{
+              display: "flex", flexDirection: "column", alignItems: "center", gap: 3, background: "none", border: "none",
+              color: tab === n.key ? "var(--lavender-deep)" : "var(--text-mute)", padding: "6px 8px", cursor: "pointer",
+            }}>
+              <Icon name={n.icon} size={19} />
+              <span style={{ fontSize: 10, fontWeight: 600 }}>{n.label.split(" ")[0]}</span>
+            </button>
+          ))}
+        </div>
+
+        <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} fullData={data}
+          onNavigate={(targetTab, semesterId) => { if (semesterId) setSelectedSemesterId(semesterId); setTab(targetTab); setSearchOpen(false); setMobileNavOpen(false); }} />
+      </div>
+    </div>
+  );
+}
+
+function SemesterSwitcher({ semesters, selectedId, currentId, onChange }) {
+  const selected = semesters.find((s) => s.id === selectedId);
+  return (
+    <div>
+      <label style={{ fontSize: 10.5, fontWeight: 700, color: "var(--text-mute)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 5, display: "block", padding: "0 4px" }}>Semestre</label>
+      <div style={{ position: "relative" }}>
+        <select value={selectedId} onChange={(e) => onChange(e.target.value)} style={{
+          width: "100%", appearance: "none", padding: "9px 30px 9px 11px", borderRadius: 11, border: "1px solid var(--border)",
+          background: "var(--surface)", color: "var(--text)", fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 13.5,
+          fontWeight: 600, cursor: "pointer",
+        }}>
+          {semesters.map((s) => <option key={s.id} value={s.id}>{s.label}{s.id === currentId ? " · atual" : ""}</option>)}
+        </select>
+        <span style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", color: "var(--text-mute)", pointerEvents: "none" }}><Icon name="chevronRight" size={13} style={{ transform: "rotate(90deg)" }} /></span>
+      </div>
+      {selected?.id === currentId && <div style={{ marginTop: 5, padding: "0 4px" }}><Badge bg="var(--success-bg)" color="var(--success)">Semestre atual</Badge></div>}
+    </div>
+  );
+}
+
+/* ============================================================
+   GLOBAL SEARCH
+   ============================================================ */
+function normalizeText(s) {
+  return (s || "").toString().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
+function GlobalSearch({ open, onClose, fullData, onNavigate }) {
+  const [q, setQ] = useState("");
+  useEffect(() => { if (!open) setQ(""); }, [open]);
+  if (!open) return null;
+
+  const nq = normalizeText(q);
+  const semesterLabel = (id) => fullData.semesters.find((s) => s.id === id)?.label || "";
+  const subjectOf = (id) => fullData.subjects.find((s) => s.id === id);
+
+  const results = [];
+  if (nq.length >= 2) {
+    fullData.subjects.forEach((s) => {
+      if (normalizeText(s.name).includes(nq) || normalizeText(s.description).includes(nq)) {
+        results.push({ type: "Matéria", icon: "subjects", title: s.name, subtitle: semesterLabel(s.semesterId), tab: "subjects", semesterId: s.semesterId, color: s.color });
+      }
+    });
+    fullData.tasks.forEach((t) => {
+      if (normalizeText(t.title).includes(nq) || normalizeText(t.description).includes(nq)) {
+        const subj = subjectOf(t.subjectId);
+        results.push({ type: "Tarefa", icon: "tasks", title: t.title, subtitle: `${subj?.name || ""} · ${semesterLabel(subj?.semesterId)}`, tab: "tasks", semesterId: subj?.semesterId, color: subj?.color });
+      }
+    });
+    fullData.exams.forEach((e) => {
+      if (normalizeText(e.type).includes(nq) || normalizeText(e.description).includes(nq)) {
+        const subj = subjectOf(e.subjectId);
+        results.push({ type: "Prova/Trabalho", icon: "exams", title: `${e.type} — ${subj?.name || ""}`, subtitle: semesterLabel(subj?.semesterId), tab: "exams", semesterId: subj?.semesterId, color: subj?.color });
+      }
+    });
+    fullData.contents.forEach((c) => {
+      if (normalizeText(c.title).includes(nq) || normalizeText(c.notes).includes(nq)) {
+        const subj = subjectOf(c.subjectId);
+        results.push({ type: "Conteúdo", icon: "contents", title: c.title, subtitle: `${subj?.name || ""} · ${semesterLabel(subj?.semesterId)}`, tab: "contents", semesterId: subj?.semesterId, color: subj?.color });
+      }
+    });
+    fullData.revisions.forEach((r) => {
+      const subj = subjectOf(r.subjectId);
+      if (normalizeText(subj?.name).includes(nq) || normalizeText(r.notes).includes(nq)) {
+        results.push({ type: "Revisão", icon: "review", title: `Revisão — ${subj?.name || ""}`, subtitle: semesterLabel(subj?.semesterId), tab: "revisions", semesterId: subj?.semesterId, color: subj?.color });
+      }
+    });
+    fullData.studySessions.forEach((s) => {
+      const subj = subjectOf(s.subjectId);
+      if (normalizeText(subj?.name).includes(nq) || normalizeText(s.contentDescription).includes(nq)) {
+        results.push({ type: "Estudo", icon: "study", title: `${subj?.name || ""} — ${s.contentDescription || "sessão de estudo"}`, subtitle: semesterLabel(subj?.semesterId), tab: "study", semesterId: subj?.semesterId, color: subj?.color });
+      }
+    });
+    fullData.schedule.forEach((s) => {
+      const subj = subjectOf(s.subjectId);
+      if (normalizeText(subj?.name).includes(nq) || normalizeText(s.professor).includes(nq) || normalizeText(s.location).includes(nq)) {
+        results.push({ type: "Horário", icon: "grid", title: `${subj?.name || ""} — ${WEEKDAYS[s.weekday]}`, subtitle: `${s.professor || semesterLabel(subj?.semesterId)}`, tab: "schedule", semesterId: subj?.semesterId, color: subj?.color });
+      }
+    });
+    fullData.internships.forEach((it) => {
+      if (normalizeText(it.local).includes(nq) || normalizeText(it.area).includes(nq) || normalizeText(it.supervisorName).includes(nq)) {
+        results.push({ type: "Estágio", icon: "briefcase", title: it.local, subtitle: `${it.area} · ${semesterLabel(it.semesterId)}`, tab: "internships", semesterId: it.semesterId, color: "var(--accent-mint)" });
+      }
+    });
+  }
+
+  return (
+    <div onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }} style={{
+      position: "fixed", inset: 0, background: "rgba(44,35,64,0.32)", zIndex: 1000, display: "flex",
+      alignItems: "flex-start", justifyContent: "center", padding: "10vh 16px 16px",
+    }}>
+      <div style={{ width: "100%", maxWidth: 560, background: "var(--surface)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-lg)", overflow: "hidden", border: "1px solid var(--border-soft)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", borderBottom: "1px solid var(--border-soft)" }}>
+          <Icon name="search" size={18} style={{ color: "var(--text-mute)" }} />
+          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Pesquisar em matérias, tarefas, provas, conteúdos…"
+            style={{ flex: 1, border: "none", outline: "none", fontSize: 15, fontFamily: "'Plus Jakarta Sans', sans-serif", background: "transparent", color: "var(--text)" }} />
+          <button onClick={onClose} style={{ background: "var(--bg-alt)", border: "none", borderRadius: 8, width: 28, height: 28, cursor: "pointer", color: "var(--text-soft)" }}><Icon name="close" size={14} /></button>
+        </div>
+        <div style={{ maxHeight: "56vh", overflowY: "auto", padding: results.length ? "8px" : "0" }}>
+          {nq.length < 2 ? (
+            <div style={{ padding: "28px 20px", textAlign: "center", fontSize: 13.5, color: "var(--text-mute)" }}>Digite ao menos 2 caracteres para pesquisar em todo o sistema, em todos os semestres.</div>
+          ) : results.length === 0 ? (
+            <div style={{ padding: "28px 20px", textAlign: "center", fontSize: 13.5, color: "var(--text-mute)" }}>Nenhum resultado para "{q}".</div>
+          ) : results.map((r, i) => (
+            <button key={i} onClick={() => onNavigate(r.tab, r.semesterId)} style={{
+              width: "100%", display: "flex", alignItems: "center", gap: 11, padding: "10px 11px", borderRadius: 11,
+              border: "none", background: "transparent", cursor: "pointer", textAlign: "left",
+            }} onMouseEnter={(e) => e.currentTarget.style.background = "var(--bg-alt)"} onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}>
+              <div style={{ width: 32, height: 32, borderRadius: 9, background: "var(--bg-alt)", display: "flex", alignItems: "center", justifyContent: "center", color: r.color || "var(--lavender-deep)", flexShrink: 0 }}>
+                <Icon name={r.icon} size={16} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.title}</div>
+                <div style={{ fontSize: 11.5, color: "var(--text-mute)" }}>{r.type} · {r.subtitle}</div>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Logo({ compact }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 9, padding: compact ? 0 : "0 8px" }}>
+      <div style={{
+        width: 32, height: 32, borderRadius: 9, background: "linear-gradient(135deg, var(--lavender-deep), var(--purple-soft))",
+        display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, boxShadow: "var(--shadow-sm)",
+      }}>
+        <span style={{ fontFamily: "'Fraunces', serif", fontSize: 19, fontWeight: 500, color: "#fff", lineHeight: 1 }}>Ψ</span>
+      </div>
+      <div>
+        <div style={{ fontFamily: "'Fraunces', serif", fontSize: 17, fontWeight: 500, color: "var(--text)", lineHeight: 1.2 }}>Estudo Organizado</div>
+        {!compact && <div style={{ fontSize: 10.5, fontWeight: 600, color: "var(--text-mute)", letterSpacing: "0.03em" }}>para estudantes de Psicologia</div>}
+      </div>
+    </div>
+  );
+}
+
+function NavItem({ n, active, onClick }) {
+  return (
+    <button className="eo-nav-item" onClick={onClick} style={{
+      display: "flex", alignItems: "center", gap: 11, padding: "10px 12px", borderRadius: 11, border: "none",
+      background: active ? "var(--bg-alt)" : "transparent", color: active ? "var(--lavender-deep)" : "var(--text-soft)",
+      fontWeight: active ? 700 : 500, fontSize: 14, cursor: "pointer", textAlign: "left", width: "100%",
+      fontFamily: "'Plus Jakarta Sans', sans-serif",
+    }}>
+      <Icon name={n.icon} size={17} />
+      {n.label}
+    </button>
+  );
+}
+
+function SaveIndicator({ state }) {
+  const map = {
+    idle: { text: "Dados salvos", color: "var(--text-mute)" },
+    saving: { text: "Salvando…", color: "var(--text-mute)" },
+    saved: { text: "Tudo salvo", color: "var(--success)" },
+    error: { text: "Erro ao salvar", color: "var(--danger)" },
+  };
+  const s = map[state] || map.idle;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: s.color, padding: "10px 10px 2px", fontWeight: 600 }}>
+      <span style={{ width: 6, height: 6, borderRadius: "50%", background: s.color }} />
+      {s.text}
+    </div>
+  );
+}
+
+/* ============================================================
+   OVERVIEW (Visão Geral)
+   ============================================================ */
+function Overview({ ctx, setTab }) {
+  const { data, semesters, selectedSemesterId, addItem, editItem, update } = ctx;
+  const semesterLabel = semesters.find((s) => s.id === selectedSemesterId)?.label || "";
+  const [refDate, setRefDate] = useState(todayISO());
+  const isToday = refDate === todayISO();
+  const [quickModal, setQuickModal] = useState(null); // 'subject' | 'exam' | 'work' | 'absence' | 'study'
+  const [editingLink, setEditingLink] = useState(null);
+
+  const userName = data.settings.userName || "";
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "bom dia" : hour < 18 ? "boa tarde" : "boa noite";
+
+  const pendingTasks = data.tasks.filter((t) => t.status !== "done");
+  const lateTasks = pendingTasks.filter((t) => t.dueDate && daysDiff(t.dueDate) < 0);
+  const upcomingExams = data.exams.filter((e) => e.date && daysDiff(e.date) >= 0).sort((a, b) => a.date.localeCompare(b.date));
+  const upcomingWorks = upcomingExams.filter((e) => e.type?.startsWith("T"));
+  const upcomingTests = upcomingExams.filter((e) => e.type?.startsWith("P"));
+  const upcomingRevisions = data.revisions.filter((r) => r.status !== "done" && r.date && daysDiff(r.date) >= 0).sort((a, b) => a.date.localeCompare(b.date));
+  const contentsDone = data.contents.filter((c) => c.status === "estudado").length;
+  const contentsPending = data.contents.filter((c) => c.status !== "estudado").length;
+  const totalMinutes = data.studySessions.reduce((sum, s) => sum + Number(s.duration || 0), 0);
+  const hours = Math.floor(totalMinutes / 60);
+  const mins = totalMinutes % 60;
+
+  const subjectsNeedingAttention = data.subjects.filter((s) => {
+    const sessions = data.studySessions.filter((ss) => ss.subjectId === s.id);
+    if (sessions.length === 0) return true;
+    const last = sessions.map((s2) => s2.date).sort().pop();
+    return daysDiff(last) < -6;
+  });
+
+  const attendanceRows = data.subjects.map((s) => ({ subject: s, status: attendanceStatus(s, data.absences) })).filter((x) => x.status.configured);
+  const criticalAttendance = attendanceRows.filter((x) => x.status.level === "danger" || x.status.level === "warning").length;
+  const currentVacation = data.vacations.find((v) => isWithinRange(todayISO(), v.startDate, v.endDate));
+
+  // "Sua atenção hoje" — real signals only
+  const attention = [];
+  const closeExam = upcomingExams.find((e) => daysDiff(e.date) <= 2);
+  if (closeExam) attention.push({ icon: "exams", text: `${closeExam.type} de ${subjectName(data, closeExam.subjectId)} em ${daysDiff(closeExam.date) === 0 ? "hoje" : daysDiff(closeExam.date) + " dia(s)"}`, tone: "danger" });
+  if (lateTasks.length > 0) attention.push({ icon: "tasks", text: `${lateTasks.length} tarefa${lateTasks.length > 1 ? "s" : ""} atrasada${lateTasks.length > 1 ? "s" : ""}`, tone: "danger" });
+  const closeWork = upcomingWorks.find((e) => daysDiff(e.date) <= 3);
+  if (closeWork) attention.push({ icon: "exams", text: `${closeWork.type} de ${subjectName(data, closeWork.subjectId)} com prazo próximo`, tone: "warning" });
+  const closeRevision = upcomingRevisions.find((r) => daysDiff(r.date) <= 1);
+  if (closeRevision) attention.push({ icon: "review", text: `Revisão de ${subjectName(data, closeRevision.subjectId)} pendente`, tone: "warning" });
+  const criticalAbsence = attendanceRows.find((x) => x.status.level === "danger") || attendanceRows.find((x) => x.status.level === "warning");
+  if (criticalAbsence) attention.push({ icon: "absence", text: `${criticalAbsence.subject.name}: ${criticalAbsence.status.pct}% de faltas${criticalAbsence.status.level === "danger" ? " — limite ultrapassado" : " — perto do limite"}`, tone: criticalAbsence.status.level === "danger" ? "danger" : "warning" });
+  if (subjectsNeedingAttention.length > 0) attention.push({ icon: "subjects", text: `${subjectsNeedingAttention[0].name} sem estudo recente`, tone: "info" });
+
+  const nextActivities = useMemo(() => {
+    const items = [];
+    pendingTasks.forEach((t) => t.dueDate && items.push({ kind: "Tarefa", taskId: t.id, name: t.title, subjectId: t.subjectId, date: t.dueDate, priority: t.priority }));
+    upcomingExams.forEach((e) => items.push({ kind: e.type, name: e.description || e.type, subjectId: e.subjectId, date: e.date, time: e.time }));
+    upcomingRevisions.forEach((r) => items.push({ kind: "Revisão", name: subjectName(data, r.subjectId), subjectId: r.subjectId, date: r.date }));
+    return items.filter((i) => i.date).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 6);
+  }, [data]);
+
+  const changeDay = (delta) => {
+    const d = new Date(refDate);
+    d.setDate(d.getDate() + delta);
+    setRefDate(d.toISOString().slice(0, 10));
+  };
+
+  const refWeekday = (() => {
+    const [y, m, d] = refDate.split("-").map(Number);
+    const jsDay = new Date(y, m - 1, d).getDay(); // 0=Dom..6=Sáb
+    return (jsDay + 6) % 7; // 0=Seg..6=Dom
+  })();
+  const todaysClasses = data.schedule.filter((s) => s.weekday === refWeekday).sort((a, b) => (a.startTime || "").localeCompare(b.startTime || ""));
+  const todaysInternships = data.internships.filter((i) => i.weekday === refWeekday);
+  const hasRoutineToday = todaysClasses.length > 0 || todaysInternships.length > 0;
+
+  return (
+    <div style={{ position: "relative" }}>
+      <span aria-hidden="true" style={{
+        position: "absolute", top: -18, right: -4, fontFamily: "'Fraunces', serif", fontSize: 130, lineHeight: 1,
+        color: "var(--lavender-deep)", opacity: 0.06, userSelect: "none", pointerEvents: "none", zIndex: -1,
+      }}>Ψ</span>
+      <PageHeader
+        eyebrow={fmtDateLong(refDate)}
+        title={userName ? `Olá ${userName}, ${greeting}!` : `Olá, ${greeting}!`}
+        subtitle={`Panorama real da sua rotina de estudos — ${semesterLabel}.`}
+        right={
+          <div style={{ display: "flex", alignItems: "center", gap: 6, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 11, padding: "5px 6px" }}>
+            <IconBtn icon="chevronLeft" onClick={() => changeDay(-1)} />
+            <button onClick={() => setRefDate(todayISO())} style={{ background: "none", border: "none", fontSize: 13, fontWeight: 600, color: isToday ? "var(--lavender-deep)" : "var(--text-soft)", cursor: "pointer", padding: "0 4px" }}>
+              {isToday ? "Hoje" : fmtDayButton(refDate)}
+            </button>
+            <IconBtn icon="chevronRight" onClick={() => changeDay(1)} />
+          </div>
+        }
+      />
+
+      <QuickLinksPanel quickLinks={data.quickLinks} onEdit={(link) => setEditingLink(link)} />
+
+      {data.subjects.length === 0 && (
+        <div style={{ marginBottom: 22 }}>
+          <EmptyState icon="subjects" title="Comece criando sua primeira matéria" subtitle="Toda a organização do Estudo Organizado parte das matérias. Cadastre a primeira para liberar tarefas, provas, conteúdos e muito mais." actionLabel="Criar matéria" onAction={() => setTab("subjects")} />
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 18 }}>
+        <Button size="sm" icon="study" disabled={data.subjects.length === 0} onClick={() => setQuickModal("study")}>Iniciar estudo</Button>
+        <Button size="sm" variant="subtle" icon="plus" onClick={() => setQuickModal("subject")}>Nova matéria</Button>
+        <Button size="sm" variant="subtle" icon="plus" disabled={data.subjects.length === 0} onClick={() => setQuickModal("work")}>Novo trabalho</Button>
+        <Button size="sm" variant="subtle" icon="plus" disabled={data.subjects.length === 0} onClick={() => setQuickModal("exam")}>Nova prova</Button>
+        <Button size="sm" variant="subtle" icon="absence" disabled={data.subjects.length === 0} onClick={() => setQuickModal("absence")}>Registrar falta</Button>
+      </div>
+
+      {currentVacation && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderRadius: "var(--radius-md)", background: "var(--accent-honey-bg)", marginBottom: 18 }}>
+          <Icon name="sun" size={17} style={{ color: "var(--accent-honey)", flexShrink: 0 }} />
+          <span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--text)" }}>Você está de férias{currentVacation.label ? ` — ${currentVacation.label}` : ""}, até {fmtDate(currentVacation.endDate)}.</span>
+        </div>
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 22 }}>
+        <StatCard icon="clock" label="Tempo estudado" value={totalMinutes === 0 ? "—" : `${hours}h ${mins}min`} />
+        <StatCard icon="tasks" label="Tarefas pendentes" value={pendingTasks.length} tone={pendingTasks.length ? "default" : "muted"} />
+        <StatCard icon="flag" label="Atrasadas" value={lateTasks.length} tone={lateTasks.length ? "danger" : "muted"} />
+        <StatCard icon="exams" label="Próximas provas" value={upcomingTests.length} />
+        <StatCard icon="contents" label="Conteúdos pendentes" value={contentsPending} />
+        <StatCard icon="review" label="Revisões pendentes" value={upcomingRevisions.length} />
+        <StatCard icon="absence" label="Faltas em risco" value={criticalAttendance} tone={criticalAttendance ? "danger" : "muted"} />
+      </div>
+
+      {hasRoutineToday && (
+        <div style={{ marginBottom: 22 }}>
+          <Panel title={isToday ? "Hoje na sua rotina" : `${WEEKDAYS[refWeekday]} na sua rotina`}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              {todaysClasses.map((c, i) => (
+                <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 6px", borderBottom: (i < todaysClasses.length - 1 || todaysInternships.length > 0) ? "1px solid var(--border-soft)" : "none" }}>
+                  <SubjectDot color={subjectColor(data, c.subjectId)} size={10} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 600 }}>{subjectName(data, c.subjectId)}</div>
+                    <div style={{ fontSize: 12, color: "var(--text-mute)" }}>{c.professor || "Aula"}{c.location ? ` · ${c.location}` : ""}</div>
+                  </div>
+                  <span style={{ fontSize: 12.5, fontWeight: 700, color: "var(--text-soft)" }}>{c.startTime}{c.endTime ? `–${c.endTime}` : ""}</span>
+                </div>
+              ))}
+              {todaysInternships.map((it, i) => (
+                <div key={it.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 6px", borderBottom: i < todaysInternships.length - 1 ? "1px solid var(--border-soft)" : "none" }}>
+                  <Icon name="briefcase" size={15} style={{ color: "var(--accent-mint)", flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 600 }}>Estágio — {it.local}</div>
+                    <div style={{ fontSize: 12, color: "var(--text-mute)" }}>{it.area}</div>
+                  </div>
+                  <span style={{ fontSize: 12.5, fontWeight: 700, color: "var(--text-soft)" }}>{it.startTime}{it.endTime ? `–${it.endTime}` : ""}</span>
+                </div>
+              ))}
+            </div>
+          </Panel>
+        </div>
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: 16, alignItems: "start" }}>
+        <Panel title="Próximas atividades">
+          {nextActivities.length === 0 ? (
+            <EmptyRow text="Nenhuma atividade cadastrada por enquanto." />
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              {nextActivities.map((a, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 6px", borderBottom: i < nextActivities.length - 1 ? "1px solid var(--border-soft)" : "none" }}>
+                  {a.taskId ? (
+                    <button onClick={() => editItem("tasks", a.taskId, { status: "done" })} title="Marcar como feito" style={{
+                      width: 20, height: 20, borderRadius: 6, border: "2px solid var(--border)", background: "transparent",
+                      display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, color: "#fff",
+                    }} />
+                  ) : (
+                    <SubjectDot color={subjectColor(data, a.subjectId)} size={10} />
+                  )}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.name}</div>
+                    <div style={{ fontSize: 12, color: "var(--text-mute)" }}>{subjectName(data, a.subjectId) || "Sem matéria"} · {a.kind}{a.time ? ` · ${a.time}` : ""}</div>
+                  </div>
+                  {a.priority && <Badge {...PRIORITIES[a.priority]}>{PRIORITIES[a.priority].label}</Badge>}
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: daysDiff(a.date) <= 1 ? "var(--danger)" : "var(--text-soft)", minWidth: 58, textAlign: "right" }}>
+                    {daysDiff(a.date) === 0 ? "Hoje" : daysDiff(a.date) === 1 ? "Amanhã" : fmtDate(a.date)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Panel>
+
+        <Panel title="Sua atenção hoje">
+          {attention.length === 0 ? (
+            <EmptyRow text="Tudo tranquilo por aqui — nada exige atenção imediata." />
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {attention.map((a, i) => (
+                <div key={i} style={{
+                  display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 11,
+                  background: a.tone === "danger" ? "var(--danger-bg)" : a.tone === "warning" ? "var(--warning-bg)" : "var(--bg-alt)",
+                }}>
+                  <Icon name={a.icon} size={16} style={{ color: a.tone === "danger" ? "var(--danger)" : a.tone === "warning" ? "var(--warning)" : "var(--lavender-deep)", flexShrink: 0 }} />
+                  <span style={{ fontSize: 13.5, color: "var(--text)", fontWeight: 500 }}>{a.text}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Panel>
+      </div>
+
+      {data.subjects.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <Panel title="Progresso por matéria">
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {data.subjects.map((s) => {
+                const contents = data.contents.filter((c) => c.subjectId === s.id);
+                const done = contents.filter((c) => c.status === "estudado").length;
+                const pct = contents.length ? Math.round((done / contents.length) * 100) : 0;
+                return (
+                  <div key={s.id}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5, fontSize: 13 }}>
+                      <span style={{ display: "flex", alignItems: "center", gap: 7, fontWeight: 600 }}><SubjectDot color={s.color} />{s.name}</span>
+                      <span style={{ color: "var(--text-mute)" }}>{contents.length ? `${pct}%` : "sem conteúdos"}</span>
+                    </div>
+                    <div style={{ height: 7, borderRadius: 6, background: "var(--bg-alt)", overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: `${pct}%`, background: s.color, borderRadius: 6, transition: "width .3s" }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Panel>
+        </div>
+      )}
+      {attendanceRows.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <Panel title="Frequência" right={<Button size="sm" variant="ghost" onClick={() => setTab("absences")}>Ver Faltas</Button>}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {attendanceRows.map((x) => {
+                const lv = ATTENDANCE_LEVEL[x.status.level];
+                return (
+                  <div key={x.subject.id}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5, fontSize: 13 }}>
+                      <span style={{ display: "flex", alignItems: "center", gap: 7, fontWeight: 600 }}><SubjectDot color={x.subject.color} />{x.subject.name}</span>
+                      <span style={{ color: lv.color, fontWeight: 700 }}>{x.status.pct}%</span>
+                    </div>
+                    <div style={{ height: 7, borderRadius: 6, background: "var(--bg-alt)", overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: `${Math.min(100, x.status.pct)}%`, background: lv.color, borderRadius: 6 }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Panel>
+        </div>
+      )}
+
+      <SubjectFormModal open={quickModal === "subject"} mode="new" subject={null} semesters={semesters} defaultSemesterId={selectedSemesterId}
+        onClose={() => setQuickModal(null)} onSave={(vals) => { addItem("subjects", vals); setQuickModal(null); }} />
+      <ExamFormModal open={quickModal === "exam" || quickModal === "work"} mode="new" exam={{ type: quickModal === "work" ? "T1" : "P1" }} subjects={data.subjects}
+        onClose={() => setQuickModal(null)} onSave={(vals) => { addItem("exams", { ...vals, status: "pendente" }); setQuickModal(null); }} />
+      <AbsenceFormModal open={quickModal === "absence"} subject={null} subjects={data.subjects} schedule={data.schedule}
+        onClose={() => setQuickModal(null)} onSave={(vals) => { addItem("absences", vals); setQuickModal(null); }} />
+      <QuickStudyModal open={quickModal === "study"} subjects={data.subjects}
+        onClose={() => setQuickModal(null)} onSave={(vals) => { addItem("studySessions", vals); setQuickModal(null); }} />
+      <QuickLinkEditModal open={!!editingLink} link={editingLink} onClose={() => setEditingLink(null)}
+        onSave={(vals) => {
+          update((prev) => ({ ...prev, quickLinks: prev.quickLinks.map((l) => (l.id === editingLink.id ? { ...l, ...vals } : l)) }));
+          setEditingLink(null);
+        }} />
+    </div>
+  );
+}
+
+const QUICK_LINK_DEFAULTS = { faculty: "Site da faculdade", drive: "Pasta do Drive" };
+
+function QuickLinksPanel({ quickLinks, onEdit }) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 18 }}>
+      {quickLinks.map((link) => {
+        const hasUrl = !!link.url;
+        const displayLabel = link.label || QUICK_LINK_DEFAULTS[link.kind];
+        const content = (
+          <>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <Icon name={link.kind === "faculty" ? "school" : "cloud"} size={16} style={{ color: hasUrl ? "var(--lavender-deep)" : "var(--text-mute)" }} />
+              <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(link); }} title="Editar link" style={{
+                background: "none", border: "none", cursor: "pointer", color: "var(--text-mute)", display: "flex", padding: 2,
+              }}><Icon name="edit" size={14} /></button>
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: hasUrl ? "var(--text)" : "var(--text-mute)", marginTop: 8, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {hasUrl ? displayLabel : `+ Adicionar ${QUICK_LINK_DEFAULTS[link.kind].toLowerCase()}`}
+            </div>
+          </>
+        );
+        const cardStyle = {
+          display: "block", padding: "12px 13px", borderRadius: "var(--radius-md)", textDecoration: "none",
+          border: hasUrl ? "1px solid var(--border-soft)" : "1px dashed var(--border)",
+          background: hasUrl ? "var(--surface)" : "var(--bg-alt)", boxShadow: hasUrl ? "var(--shadow-sm)" : "none", cursor: "pointer",
+        };
+        return hasUrl ? (
+          <a key={link.id} href={link.url} target="_blank" rel="noreferrer" style={cardStyle}>{content}</a>
+        ) : (
+          <button key={link.id} onClick={() => onEdit(link)} style={{ ...cardStyle, textAlign: "left", width: "100%" }}>{content}</button>
+        );
+      })}
+    </div>
+  );
+}
+
+function QuickLinkEditModal({ open, link, onClose, onSave }) {
+  const [label, setLabel] = useState("");
+  const [url, setUrl] = useState("");
+
+  useEffect(() => { if (open && link) { setLabel(link.label || ""); setUrl(link.url || ""); } }, [open, link]);
+  if (!link) return null;
+
+  return (
+    <Modal open={open} onClose={onClose} title={`Editar ${QUICK_LINK_DEFAULTS[link.kind].toLowerCase()}`} width={380}>
+      <Field label="Nome"><input style={fieldStyle} value={label} onChange={(e) => setLabel(e.target.value)} placeholder={QUICK_LINK_DEFAULTS[link.kind]} /></Field>
+      <Field label="Link"><input style={fieldStyle} value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…" /></Field>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 6 }}>
+        {link.url ? <Button variant="danger" size="sm" onClick={() => onSave({ label: "", url: "" })}>Remover</Button> : <span />}
+        <div style={{ display: "flex", gap: 8 }}>
+          <Button variant="secondary" onClick={onClose}>Cancelar</Button>
+          <Button disabled={!url.trim()} onClick={() => onSave({ label: label.trim(), url: url.trim() })}>Salvar</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function subjectColor(data, id) { return data.subjects.find((s) => s.id === id)?.color || "var(--text-mute)"; }
+
+function attendanceStatus(subject, absences) {
+  const total = Number(subject.totalClasses || 0);
+  const limitPct = subject.absenceLimitPercent != null && subject.absenceLimitPercent !== "" ? Number(subject.absenceLimitPercent) : 25;
+  const used = absences.filter((a) => a.subjectId === subject.id).reduce((sum, a) => sum + Number(a.count || 0), 0);
+  if (!total) return { configured: false, used, limitPct, total: 0, pct: null, allowed: null, remaining: null, level: "unset" };
+  const pct = Math.round((used / total) * 1000) / 10;
+  const allowed = Math.floor((total * limitPct) / 100);
+  const remaining = allowed - used;
+  let level = "ok";
+  if (pct >= limitPct) level = "danger";
+  else if (pct >= limitPct * 0.7) level = "warning";
+  return { configured: true, used, limitPct, total, pct, allowed, remaining, level };
+}
+
+const ATTENDANCE_LEVEL = {
+  ok: { label: "Dentro do limite", color: "var(--success)", bg: "var(--success-bg)" },
+  warning: { label: "Atenção", color: "var(--warning)", bg: "var(--warning-bg)" },
+  danger: { label: "Limite estourado", color: "var(--danger)", bg: "var(--danger-bg)" },
+  unset: { label: "Sem configuração", color: "var(--text-mute)", bg: "var(--bg-alt)" },
+};
+
+function PageHeader({ eyebrow, title, subtitle, right }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 14, marginBottom: 24 }}>
+      <div>
+        {eyebrow && <div style={{ fontSize: 12.5, color: "var(--text-mute)", fontWeight: 600, textTransform: "capitalize", marginBottom: 6 }}>{eyebrow}</div>}
+        <h1 style={{ fontFamily: "'Fraunces', serif", fontSize: 28, fontWeight: 500, margin: 0, color: "var(--text)" }}>{title}</h1>
+        {subtitle && <div style={{ fontSize: 14, color: "var(--text-soft)", marginTop: 5 }}>{subtitle}</div>}
+      </div>
+      {right}
+    </div>
+  );
+}
+
+function IconBtn({ icon, onClick, active }) {
+  return (
+    <button onClick={onClick} style={{
+      width: 28, height: 28, borderRadius: 8, border: "none", background: active ? "var(--bg-alt)" : "transparent",
+      color: "var(--text-soft)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
+    }}><Icon name={icon} size={15} /></button>
+  );
+}
+
+function StatCard({ icon, label, value, tone = "default" }) {
+  const colors = { default: "var(--lavender-deep)", danger: "var(--danger)", muted: "var(--text-mute)" };
+  return (
+    <div className="eo-card" style={{ background: "var(--surface)", border: "1px solid var(--border-soft)", borderRadius: "var(--radius-md)", padding: "14px 16px", boxShadow: "var(--shadow-sm)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, color: colors[tone] }}>
+        <Icon name={icon} size={16} />
+      </div>
+      <div style={{ fontFamily: "'Fraunces', serif", fontSize: 24, fontWeight: 600, color: "var(--text)", lineHeight: 1 }}>{value}</div>
+      <div style={{ fontSize: 12.5, color: "var(--text-mute)", marginTop: 5, fontWeight: 500 }}>{label}</div>
+    </div>
+  );
+}
+
+function Panel({ title, right, children }) {
+  return (
+    <div style={{ background: "var(--surface)", border: "1px solid var(--border-soft)", borderRadius: "var(--radius-lg)", padding: 18, boxShadow: "var(--shadow-sm)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <div style={{ fontFamily: "'Fraunces', serif", fontSize: 16.5, fontWeight: 500, color: "var(--text)" }}>{title}</div>
+        {right}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function EmptyRow({ text }) {
+  return <div style={{ fontSize: 13.5, color: "var(--text-mute)", padding: "20px 6px", textAlign: "center" }}>{text}</div>;
+}
+
+/* ============================================================
+   SUBJECTS (Matérias)
+   ============================================================ */
+function SubjectsView({ ctx }) {
+  const { data, addItem, editItem, removeItem, semesters, selectedSemesterId } = ctx;
+  const [modal, setModal] = useState(null); // {mode:'new'|'edit', subject}
+  const [openSubject, setOpenSubject] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const semesterLabel = semesters.find((s) => s.id === selectedSemesterId)?.label || "";
+
+  return (
+    <div>
+      <PageHeader title="Matérias" subtitle={`O centro de organização de cada disciplina — ${semesterLabel}.`} right={<Button icon="plus" onClick={() => setModal({ mode: "new" })}>Nova matéria</Button>} />
+
+      {data.subjects.length === 0 ? (
+        <EmptyState title="Nenhuma matéria cadastrada neste semestre" subtitle="Crie a primeira matéria deste semestre — por exemplo, Psicologia Social, Psicopatologia ou Neuropsicologia — para começar a organizar tarefas, provas, conteúdos e estudos." actionLabel="Criar matéria" onAction={() => setModal({ mode: "new" })} />
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 14 }}>
+          {data.subjects.map((s) => {
+            const contents = data.contents.filter((c) => c.subjectId === s.id);
+            const done = contents.filter((c) => c.status === "estudado").length;
+            const pct = contents.length ? Math.round((done / contents.length) * 100) : 0;
+            const pendingTasks = data.tasks.filter((t) => t.subjectId === s.id && t.status !== "done").length;
+            return (
+              <div key={s.id} className="eo-card" onClick={() => setOpenSubject(s.id)} style={{
+                background: "var(--surface)", border: "1px solid var(--border-soft)", borderRadius: "var(--radius-lg)",
+                padding: 18, cursor: "pointer", boxShadow: "var(--shadow-sm)",
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                    <span style={{ width: 12, height: 12, borderRadius: "50%", background: s.color, flexShrink: 0 }} />
+                    <span style={{ fontFamily: "'Fraunces', serif", fontSize: 17, fontWeight: 500 }}>{s.name}</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 2 }} onClick={(e) => e.stopPropagation()}>
+                    <IconBtn icon="edit" onClick={() => setModal({ mode: "edit", subject: s })} />
+                    <IconBtn icon="trash" onClick={() => setConfirmDelete(s.id)} />
+                  </div>
+                </div>
+                {s.description && <div style={{ fontSize: 13, color: "var(--text-mute)", marginTop: 8 }}>{s.description}</div>}
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ height: 6, borderRadius: 6, background: "var(--bg-alt)", overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${pct}%`, background: s.color }} />
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginTop: 7, fontSize: 12, color: "var(--text-mute)" }}>
+                    <span>{contents.length ? `${pct}% concluído` : "sem conteúdos"}</span>
+                    {pendingTasks > 0 && <span style={{ color: "var(--lavender-deep)", fontWeight: 600 }}>{pendingTasks} tarefa(s)</span>}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <SubjectFormModal open={!!modal} mode={modal?.mode} subject={modal?.subject} semesters={semesters} defaultSemesterId={selectedSemesterId} onClose={() => setModal(null)}
+        onSave={(vals) => { modal.mode === "new" ? addItem("subjects", vals) : editItem("subjects", modal.subject.id, vals); setModal(null); }} />
+
+      <ConfirmDialog open={!!confirmDelete} onCancel={() => setConfirmDelete(null)} message="A matéria e todos os dados vinculados a ela (tarefas, provas, conteúdos, estudos e revisões) serão excluídos permanentemente."
+        onConfirm={() => { removeItem("subjects", confirmDelete); setConfirmDelete(null); }} />
+
+      {openSubject && <SubjectDetailModal ctx={ctx} subjectId={openSubject} onClose={() => setOpenSubject(null)} />}
+    </div>
+  );
+}
+
+function SubjectFormModal({ open, mode, subject, semesters, defaultSemesterId, onClose, onSave }) {
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [color, setColor] = useState(SUBJECT_COLORS[0]);
+  const [semesterId, setSemesterId] = useState("");
+
+  useEffect(() => {
+    if (open) {
+      setName(subject?.name || "");
+      setDescription(subject?.description || "");
+      setColor(subject?.color || SUBJECT_COLORS[Math.floor(Math.random() * SUBJECT_COLORS.length)]);
+      setSemesterId(subject?.semesterId || defaultSemesterId);
+    }
+  }, [open, subject]);
+
+  return (
+    <Modal open={open} onClose={onClose} title={mode === "new" ? "Nova matéria" : "Editar matéria"}>
+      <Field label="Nome"><input style={fieldStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex: Psicologia Social" autoFocus /></Field>
+      <Field label="Semestre"><Select value={semesterId} onChange={setSemesterId} options={semesters.map((s) => ({ value: s.id, label: s.label }))} /></Field>
+      <Field label="Descrição (opcional)"><textarea style={{ ...fieldStyle, minHeight: 70, resize: "vertical" }} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Ementa, professor, observações…" /></Field>
+      <Field label="Cor">
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {SUBJECT_COLORS.map((c) => (
+            <button key={c} onClick={() => setColor(c)} style={{
+              width: 28, height: 28, borderRadius: "50%", background: c, border: color === c ? "2.5px solid var(--text)" : "2.5px solid transparent",
+              cursor: "pointer", boxShadow: "var(--shadow-sm)",
+            }} />
+          ))}
+        </div>
+      </Field>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 6 }}>
+        <Button variant="secondary" onClick={onClose}>Cancelar</Button>
+        <Button disabled={!name.trim() || !semesterId} onClick={() => onSave({ name: name.trim(), description: description.trim(), color, semesterId })}>Salvar</Button>
+      </div>
+    </Modal>
+  );
+}
+
+function SubjectDetailModal({ ctx, subjectId, onClose }) {
+  const { data } = ctx;
+  const s = data.subjects.find((x) => x.id === subjectId);
+  if (!s) return null;
+  const tasks = data.tasks.filter((t) => t.subjectId === subjectId);
+  const exams = data.exams.filter((e) => e.subjectId === subjectId);
+  const contents = data.contents.filter((c) => c.subjectId === subjectId);
+  const sessions = data.studySessions.filter((ss) => ss.subjectId === subjectId);
+  const revisions = data.revisions.filter((r) => r.subjectId === subjectId);
+  const totalMin = sessions.reduce((sum, x) => sum + Number(x.duration || 0), 0);
+
+  return (
+    <Modal open onClose={onClose} title={s.name} width={560}>
+      {s.description && <p style={{ fontSize: 13.5, color: "var(--text-soft)", marginTop: -6 }}>{s.description}</p>}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 16 }}>
+        <MiniStat label="Tempo estudado" value={totalMin ? `${Math.floor(totalMin / 60)}h${totalMin % 60}m` : "—"} />
+        <MiniStat label="Tarefas" value={`${tasks.filter((t) => t.status === "done").length}/${tasks.length}`} />
+        <MiniStat label="Conteúdos" value={`${contents.filter((c) => c.status === "estudado").length}/${contents.length}`} />
+      </div>
+      <DetailList title="Provas e trabalhos" items={exams.map((e) => `${e.type} · ${fmtDate(e.date)}${e.grade ? ` · nota ${e.grade}` : ""}`)} />
+      <DetailList title="Tarefas" items={tasks.map((t) => `${t.status === "done" ? "✓ " : ""}${t.title}`)} />
+      <DetailList title="Conteúdos" items={contents.map((c) => `${c.title} — ${CONTENT_STATUS[c.status]?.label}`)} />
+      <DetailList title="Revisões" items={revisions.map((r) => `${fmtDate(r.date)}${r.status === "done" ? " · concluída" : ""}`)} />
+    </Modal>
+  );
+}
+
+function MiniStat({ label, value }) {
+  return (
+    <div style={{ background: "var(--bg-alt)", borderRadius: 10, padding: "10px 12px", textAlign: "center" }}>
+      <div style={{ fontFamily: "'Fraunces', serif", fontSize: 17, fontWeight: 600 }}>{value}</div>
+      <div style={{ fontSize: 11, color: "var(--text-mute)", marginTop: 2 }}>{label}</div>
+    </div>
+  );
+}
+
+function DetailList({ title, items }) {
+  if (!items.length) return null;
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--text-soft)", marginBottom: 6 }}>{title}</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        {items.slice(0, 8).map((it, i) => <div key={i} style={{ fontSize: 13, color: "var(--text)", padding: "6px 10px", background: "var(--bg)", borderRadius: 8 }}>{it}</div>)}
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   TASKS (Tarefas)
+   ============================================================ */
+function TasksView({ ctx }) {
+  const { data, addItem, editItem, removeItem } = ctx;
+  const [modal, setModal] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [filter, setFilter] = useState("pending");
+  const [subjectFilter, setSubjectFilter] = useState("");
+
+  const filtered = data.tasks.filter((t) => {
+    if (subjectFilter && t.subjectId !== subjectFilter) return false;
+    if (filter === "pending") return t.status !== "done";
+    if (filter === "done") return t.status === "done";
+    if (filter === "late") return t.status !== "done" && t.dueDate && daysDiff(t.dueDate) < 0;
+    return true;
+  }).sort((a, b) => (a.dueDate || "9999").localeCompare(b.dueDate || "9999"));
+
+  const counts = {
+    all: data.tasks.length,
+    pending: data.tasks.filter((t) => t.status !== "done").length,
+    done: data.tasks.filter((t) => t.status === "done").length,
+    late: data.tasks.filter((t) => t.status !== "done" && t.dueDate && daysDiff(t.dueDate) < 0).length,
+  };
+
+  return (
+    <div>
+      <PageHeader title="Tarefas" subtitle="Tudo que precisa ser feito, em um só lugar." right={<Button icon="plus" onClick={() => setModal({ mode: "new" })} disabled={data.subjects.length === 0}>Nova tarefa</Button>} />
+
+      {data.subjects.length === 0 ? (
+        <EmptyState title="Cadastre uma matéria antes de criar tarefas" subtitle="As tarefas precisam estar vinculadas a uma matéria para se organizarem corretamente." />
+      ) : (
+        <>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16, alignItems: "center" }}>
+            <FilterChip label={`Pendentes (${counts.pending})`} active={filter === "pending"} onClick={() => setFilter("pending")} />
+            <FilterChip label={`Atrasadas (${counts.late})`} active={filter === "late"} onClick={() => setFilter("late")} tone="danger" />
+            <FilterChip label={`Concluídas (${counts.done})`} active={filter === "done"} onClick={() => setFilter("done")} />
+            <FilterChip label={`Todas (${counts.all})`} active={filter === "all"} onClick={() => setFilter("all")} />
+            <div style={{ marginLeft: "auto", minWidth: 160 }}>
+              <Select value={subjectFilter} onChange={setSubjectFilter} placeholder="Todas as matérias" options={data.subjects.map((s) => ({ value: s.id, label: s.name }))} />
+            </div>
+          </div>
+
+          {filtered.length === 0 ? (
+            <EmptyState title="Tudo tranquilo por aqui!" subtitle="Você ainda não possui tarefas nesse filtro." actionLabel="Criar tarefa" onAction={() => setModal({ mode: "new" })} />
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {filtered.map((t) => {
+                const late = t.status !== "done" && t.dueDate && daysDiff(t.dueDate) < 0;
+                return (
+                  <div key={t.id} className="eo-card" style={{
+                    display: "flex", alignItems: "center", gap: 12, background: "var(--surface)", border: "1px solid var(--border-soft)",
+                    borderRadius: "var(--radius-md)", padding: "13px 14px", boxShadow: "var(--shadow-sm)",
+                  }}>
+                    <button onClick={() => editItem("tasks", t.id, { status: t.status === "done" ? "pending" : "done" })} style={{
+                      width: 22, height: 22, borderRadius: 7, border: `2px solid ${t.status === "done" ? "var(--success)" : "var(--border)"}`,
+                      background: t.status === "done" ? "var(--success)" : "transparent", display: "flex", alignItems: "center", justifyContent: "center",
+                      cursor: "pointer", flexShrink: 0, color: "#fff",
+                    }}>{t.status === "done" && <Icon name="check" size={13} />}</button>
+                    <SubjectDot color={subjectColor(data, t.subjectId)} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 14.5, fontWeight: 600, textDecoration: t.status === "done" ? "line-through" : "none", color: t.status === "done" ? "var(--text-mute)" : "var(--text)" }}>{t.title}</div>
+                      <div style={{ fontSize: 12, color: "var(--text-mute)" }}>{subjectName(data, t.subjectId)}{t.description ? ` · ${t.description}` : ""}</div>
+                    </div>
+                    {t.priority && <Badge {...PRIORITIES[t.priority]}>{PRIORITIES[t.priority].label}</Badge>}
+                    {t.dueDate && <div style={{ fontSize: 12.5, fontWeight: 700, color: late ? "var(--danger)" : "var(--text-soft)", minWidth: 60, textAlign: "right" }}>{fmtDate(t.dueDate)}</div>}
+                    <div style={{ display: "flex", gap: 2 }}>
+                      <IconBtn icon="edit" onClick={() => setModal({ mode: "edit", task: t })} />
+                      <IconBtn icon="trash" onClick={() => setConfirmDelete(t.id)} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
+
+      <TaskFormModal open={!!modal} mode={modal?.mode} task={modal?.task} subjects={data.subjects} onClose={() => setModal(null)}
+        onSave={(vals) => { modal.mode === "new" ? addItem("tasks", { ...vals, status: "pending" }) : editItem("tasks", modal.task.id, vals); setModal(null); }} />
+      <ConfirmDialog open={!!confirmDelete} onCancel={() => setConfirmDelete(null)} message="Esta tarefa será excluída permanentemente."
+        onConfirm={() => { removeItem("tasks", confirmDelete); setConfirmDelete(null); }} />
+    </div>
+  );
+}
+
+function FilterChip({ label, active, onClick, tone }) {
+  return (
+    <button onClick={onClick} style={{
+      padding: "7px 13px", borderRadius: 999, border: "1px solid " + (active ? "transparent" : "var(--border)"),
+      background: active ? (tone === "danger" ? "var(--danger)" : "var(--lavender-deep)") : "var(--surface)",
+      color: active ? "#fff" : "var(--text-soft)", fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif",
+    }}>{label}</button>
+  );
+}
+
+function TaskFormModal({ open, mode, task, subjects, onClose, onSave }) {
+  const [title, setTitle] = useState("");
+  const [subjectId, setSubjectId] = useState("");
+  const [priority, setPriority] = useState("media");
+  const [dueDate, setDueDate] = useState("");
+  const [description, setDescription] = useState("");
+
+  useEffect(() => {
+    if (open) {
+      setTitle(task?.title || "");
+      setSubjectId(task?.subjectId || subjects[0]?.id || "");
+      setPriority(task?.priority || "media");
+      setDueDate(task?.dueDate || "");
+      setDescription(task?.description || "");
+    }
+  }, [open, task]);
+
+  return (
+    <Modal open={open} onClose={onClose} title={mode === "new" ? "Nova tarefa" : "Editar tarefa"}>
+      <Field label="Título"><input style={fieldStyle} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ex: Ler capítulo sobre Transtornos de Personalidade" autoFocus /></Field>
+      <Field label="Matéria"><Select value={subjectId} onChange={setSubjectId} options={subjects.map((s) => ({ value: s.id, label: s.name }))} /></Field>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <Field label="Prazo"><input type="date" style={fieldStyle} value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></Field>
+        <Field label="Prioridade"><Select value={priority} onChange={setPriority} options={[{ value: "alta", label: "Alta" }, { value: "media", label: "Média" }, { value: "baixa", label: "Baixa" }]} /></Field>
+      </div>
+      <Field label="Descrição (opcional)"><textarea style={{ ...fieldStyle, minHeight: 60, resize: "vertical" }} value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 6 }}>
+        <Button variant="secondary" onClick={onClose}>Cancelar</Button>
+        <Button disabled={!title.trim() || !subjectId} onClick={() => onSave({ title: title.trim(), subjectId, priority, dueDate, description: description.trim() })}>Salvar</Button>
+      </div>
+    </Modal>
+  );
+}
+
+/* ============================================================
+   EXAMS (Provas e Trabalhos)
+   ============================================================ */
+function ExamsView({ ctx }) {
+  const { data, addItem, editItem, removeItem } = ctx;
+  const [modal, setModal] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [filter, setFilter] = useState("all");
+
+  const sorted = [...data.exams].sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999"));
+  const filtered = sorted.filter((e) => {
+    if (filter === "tests") return e.type?.startsWith("P");
+    if (filter === "works") return e.type?.startsWith("T");
+    if (filter === "done") return e.status === "concluido";
+    return true;
+  });
+
+  return (
+    <div>
+      <PageHeader title="Provas e Trabalhos" subtitle="Todas as avaliações acadêmicas em um único lugar." right={<Button icon="plus" onClick={() => setModal({ mode: "new" })} disabled={data.subjects.length === 0}>Nova avaliação</Button>} />
+
+      {data.subjects.length === 0 ? (
+        <EmptyState title="Cadastre uma matéria antes de adicionar avaliações" subtitle="Provas e trabalhos precisam estar vinculados a uma matéria." />
+      ) : (
+        <>
+          <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+            <FilterChip label="Todas" active={filter === "all"} onClick={() => setFilter("all")} />
+            <FilterChip label="Provas" active={filter === "tests"} onClick={() => setFilter("tests")} />
+            <FilterChip label="Trabalhos" active={filter === "works"} onClick={() => setFilter("works")} />
+            <FilterChip label="Concluídas" active={filter === "done"} onClick={() => setFilter("done")} />
+          </div>
+
+          {filtered.length === 0 ? (
+            <EmptyState title="Você ainda não possui provas ou trabalhos cadastrados" subtitle="Adicione a primeira avaliação para acompanhar prazos e notas." actionLabel="Nova avaliação" onAction={() => setModal({ mode: "new" })} />
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12 }}>
+              {filtered.map((e) => {
+                const dd = e.date ? daysDiff(e.date) : null;
+                return (
+                  <div key={e.id} className="eo-card" style={{ background: "var(--surface)", border: "1px solid var(--border-soft)", borderRadius: "var(--radius-md)", padding: 15, boxShadow: "var(--shadow-sm)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <SubjectDot color={subjectColor(data, e.subjectId)} size={10} />
+                        <Badge>{e.type}</Badge>
+                      </div>
+                      <div style={{ display: "flex", gap: 2 }}>
+                        <IconBtn icon="edit" onClick={() => setModal({ mode: "edit", exam: e })} />
+                        <IconBtn icon="trash" onClick={() => setConfirmDelete(e.id)} />
+                      </div>
+                    </div>
+                    <div style={{ fontFamily: "'Fraunces', serif", fontSize: 16, fontWeight: 500, margin: "9px 0 2px" }}>{subjectName(data, e.subjectId)}</div>
+                    {e.description && <div style={{ fontSize: 13, color: "var(--text-soft)", marginBottom: 8 }}>{e.description}</div>}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10 }}>
+                      <span style={{ fontSize: 12.5, color: dd !== null && dd < 0 ? "var(--danger)" : "var(--text-mute)", fontWeight: 600 }}>
+                        {e.date ? `${fmtDate(e.date)}${e.time ? " · " + e.time : ""}` : "sem data"}
+                      </span>
+                      {e.grade !== "" && e.grade != null ? <Badge bg="var(--success-bg)" color="var(--success)">Nota {e.grade}</Badge> : <Badge>{e.status === "concluido" ? "Concluída" : "Pendente"}</Badge>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
+
+      <ExamFormModal open={!!modal} mode={modal?.mode} exam={modal?.exam} subjects={data.subjects} onClose={() => setModal(null)}
+        onSave={(vals) => { modal.mode === "new" ? addItem("exams", { ...vals, status: "pendente" }) : editItem("exams", modal.exam.id, vals); setModal(null); }} />
+      <ConfirmDialog open={!!confirmDelete} onCancel={() => setConfirmDelete(null)} message="Esta avaliação será excluída permanentemente."
+        onConfirm={() => { removeItem("exams", confirmDelete); setConfirmDelete(null); }} />
+    </div>
+  );
+}
+
+function ExamFormModal({ open, mode, exam, subjects, onClose, onSave }) {
+  const [subjectId, setSubjectId] = useState("");
+  const [type, setType] = useState("P1");
+  const [customType, setCustomType] = useState("");
+  const [date, setDate] = useState("");
+  const [time, setTime] = useState("");
+  const [description, setDescription] = useState("");
+  const [notes, setNotes] = useState("");
+  const [grade, setGrade] = useState("");
+  const [status, setStatus] = useState("pendente");
+
+  useEffect(() => {
+    if (open) {
+      const isCustom = exam && !EXAM_TYPES.includes(exam.type);
+      setSubjectId(exam?.subjectId || subjects[0]?.id || "");
+      setType(isCustom ? "outro" : exam?.type || "P1");
+      setCustomType(isCustom ? exam.type : "");
+      setDate(exam?.date || "");
+      setTime(exam?.time || "");
+      setDescription(exam?.description || "");
+      setNotes(exam?.notes || "");
+      setGrade(exam?.grade ?? "");
+      setStatus(exam?.status || "pendente");
+    }
+  }, [open, exam]);
+
+  return (
+    <Modal open={open} onClose={onClose} title={mode === "new" ? "Nova avaliação" : "Editar avaliação"}>
+      <Field label="Matéria"><Select value={subjectId} onChange={setSubjectId} options={subjects.map((s) => ({ value: s.id, label: s.name }))} /></Field>
+      <div style={{ display: "grid", gridTemplateColumns: type === "outro" ? "1fr 1fr" : "1fr", gap: 12 }}>
+        <Field label="Tipo">
+          <Select value={type} onChange={setType} options={[...EXAM_TYPES.map((t) => ({ value: t, label: t })), { value: "outro", label: "Outro" }]} />
+        </Field>
+        {type === "outro" && <Field label="Nome do tipo"><input style={fieldStyle} value={customType} onChange={(e) => setCustomType(e.target.value)} placeholder="Ex: Seminário clínico" /></Field>}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <Field label="Data"><input type="date" style={fieldStyle} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+        <Field label="Horário (opcional)"><input type="time" style={fieldStyle} value={time} onChange={(e) => setTime(e.target.value)} /></Field>
+      </div>
+      <Field label="Descrição"><input style={fieldStyle} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Ex: Prova sobre Teorias da Personalidade" /></Field>
+      <Field label="Observações"><textarea style={{ ...fieldStyle, minHeight: 55, resize: "vertical" }} value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <Field label="Status"><Select value={status} onChange={setStatus} options={[{ value: "pendente", label: "Pendente" }, { value: "concluido", label: "Concluída" }]} /></Field>
+        <Field label="Nota (opcional)"><input type="number" step="0.1" style={fieldStyle} value={grade} onChange={(e) => setGrade(e.target.value)} placeholder="Ex: 8.5" /></Field>
+      </div>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 6 }}>
+        <Button variant="secondary" onClick={onClose}>Cancelar</Button>
+        <Button disabled={!subjectId || (type === "outro" && !customType.trim())} onClick={() => onSave({
+          subjectId, type: type === "outro" ? customType.trim() : type, date, time, description: description.trim(),
+          notes: notes.trim(), status, grade: grade === "" ? "" : Number(grade),
+        })}>Salvar</Button>
+      </div>
+    </Modal>
+  );
+}
+
+/* ============================================================
+   ABSENCES (Faltas)
+   ============================================================ */
+function nearestPastDateForWeekday(weekdayIdx, refIso) {
+  const base = refIso || todayISO();
+  const [y, m, d] = base.split("-").map(Number);
+  const ref = new Date(y, m - 1, d);
+  const refOurIdx = (ref.getDay() + 6) % 7;
+  let diff = refOurIdx - weekdayIdx;
+  if (diff < 0) diff += 7;
+  ref.setDate(ref.getDate() - diff);
+  return ref.toISOString().slice(0, 10);
+}
+
+function AbsencesView({ ctx }) {
+  const { data, addItem, editItem, removeItem, semesters, selectedSemesterId } = ctx;
+  const [configModal, setConfigModal] = useState(null);
+  const [absenceModal, setAbsenceModal] = useState(null);
+  const [expanded, setExpanded] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const semesterLabel = semesters.find((s) => s.id === selectedSemesterId)?.label || "";
+
+  const atRisk = data.subjects.filter((s) => attendanceStatus(s, data.absences).level === "danger" || attendanceStatus(s, data.absences).level === "warning");
+
+  return (
+    <div>
+      <PageHeader title="Faltas" subtitle={`Controle sua frequência e o limite de cada matéria — ${semesterLabel}.`} />
+
+      {data.subjects.length === 0 ? (
+        <EmptyState icon="absence" title="Cadastre uma matéria antes de controlar faltas" subtitle="Cada limite de frequência é configurado por matéria." />
+      ) : (
+        <>
+          {atRisk.length > 0 && (
+            <div style={{ marginBottom: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+              {atRisk.map((s) => {
+                const st = attendanceStatus(s, data.absences);
+                const lv = ATTENDANCE_LEVEL[st.level];
+                return (
+                  <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 13px", borderRadius: 11, background: lv.bg }}>
+                    <Icon name="absence" size={16} style={{ color: lv.color, flexShrink: 0 }} />
+                    <span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--text)" }}>
+                      {s.name}: {st.pct}% de faltas {st.level === "danger" ? "— limite ultrapassado" : "— perto do limite"} ({st.used}/{st.allowed} faltas permitidas)
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12 }}>
+            {data.subjects.map((s) => {
+              const st = attendanceStatus(s, data.absences);
+              const lv = ATTENDANCE_LEVEL[st.level];
+              const subjectAbsences = data.absences.filter((a) => a.subjectId === s.id).sort((a, b) => b.date.localeCompare(a.date));
+              const isOpen = expanded === s.id;
+              return (
+                <div key={s.id} className="eo-card" style={{ background: "var(--surface)", border: "1px solid var(--border-soft)", borderRadius: "var(--radius-lg)", padding: 16, boxShadow: "var(--shadow-sm)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}><SubjectDot color={s.color} size={11} /><span style={{ fontFamily: "'Fraunces', serif", fontSize: 16, fontWeight: 500 }}>{s.name}</span></div>
+                    <IconBtn icon="edit" onClick={() => setConfigModal(s)} />
+                  </div>
+
+                  {!st.configured ? (
+                    <div style={{ marginTop: 12 }}>
+                      <div style={{ fontSize: 12.5, color: "var(--text-mute)", marginBottom: 8 }}>Configure a quantidade total de aulas do semestre para acompanhar automaticamente sua frequência.</div>
+                      <Button size="sm" variant="subtle" onClick={() => setConfigModal(s)}>Configurar limite</Button>
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{ marginTop: 12, display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 5 }}>
+                        <span style={{ fontWeight: 700, color: lv.color }}>{st.pct}% de faltas</span>
+                        <span style={{ color: "var(--text-mute)" }}>{st.used}/{st.total} aulas</span>
+                      </div>
+                      <div style={{ height: 8, borderRadius: 6, background: "var(--bg-alt)", overflow: "hidden" }}>
+                        <div style={{ height: "100%", width: `${Math.min(100, st.pct)}%`, background: lv.color, borderRadius: 6 }} />
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
+                        <Badge bg={lv.bg} color={lv.color}>{lv.label}</Badge>
+                        <span style={{ fontSize: 11.5, color: "var(--text-mute)" }}>{st.remaining >= 0 ? `${st.remaining} falta(s) restantes` : `${-st.remaining} acima do limite`}</span>
+                      </div>
+                    </>
+                  )}
+
+                  <div style={{ display: "flex", gap: 8, marginTop: 13 }}>
+                    <Button size="sm" icon="plus" onClick={() => setAbsenceModal({ mode: "new", subject: s })}>Registrar falta</Button>
+                    {subjectAbsences.length > 0 && <Button size="sm" variant="secondary" onClick={() => setExpanded(isOpen ? null : s.id)}>{isOpen ? "Ocultar" : `Ver (${subjectAbsences.length})`}</Button>}
+                  </div>
+
+                  {isOpen && (
+                    <div style={{ marginTop: 11, borderTop: "1px solid var(--border-soft)", paddingTop: 10, display: "flex", flexDirection: "column", gap: 2 }}>
+                      {subjectAbsences.map((a, i) => (
+                        <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 2px", borderBottom: i < subjectAbsences.length - 1 ? "1px solid var(--border-soft)" : "none" }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text-soft)", minWidth: 54 }}>{fmtDate(a.date)}</span>
+                          <span style={{ flex: 1, fontSize: 12, color: "var(--text-mute)" }}>{a.notes}</span>
+                          <Badge>{a.count}x</Badge>
+                          <IconBtn icon="trash" onClick={() => setConfirmDelete(a.id)} />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      <AttendanceConfigModal open={!!configModal} subject={configModal} onClose={() => setConfigModal(null)}
+        onSave={(vals) => { editItem("subjects", configModal.id, vals); setConfigModal(null); }} />
+
+      <AbsenceFormModal open={!!absenceModal} subject={absenceModal?.subject} schedule={data.schedule} onClose={() => setAbsenceModal(null)}
+        onSave={(vals) => { addItem("absences", vals); setAbsenceModal(null); }} />
+
+      <ConfirmDialog open={!!confirmDelete} onCancel={() => setConfirmDelete(null)} message="Este registro de falta será excluído permanentemente."
+        onConfirm={() => { removeItem("absences", confirmDelete); setConfirmDelete(null); }} />
+    </div>
+  );
+}
+
+function AttendanceConfigModal({ open, subject, onClose, onSave }) {
+  const [totalClasses, setTotalClasses] = useState("");
+  const [absenceLimitPercent, setAbsenceLimitPercent] = useState("25");
+
+  useEffect(() => {
+    if (open && subject) {
+      setTotalClasses(subject.totalClasses ?? "");
+      setAbsenceLimitPercent(subject.absenceLimitPercent ?? "25");
+    }
+  }, [open, subject]);
+
+  if (!subject) return null;
+
+  return (
+    <Modal open={open} onClose={onClose} title={`Configurar frequência — ${subject.name}`} width={420}>
+      <Field label="Total de aulas previstas no semestre"><input type="number" min="0" style={fieldStyle} value={totalClasses} onChange={(e) => setTotalClasses(e.target.value)} placeholder="Ex: 60" /></Field>
+      <Field label="Limite de faltas (%)"><input type="number" min="0" max="100" style={fieldStyle} value={absenceLimitPercent} onChange={(e) => setAbsenceLimitPercent(e.target.value)} placeholder="Ex: 25" /></Field>
+      <div style={{ fontSize: 12, color: "var(--text-mute)", marginBottom: 6 }}>A maioria das instituições reprova com 25% de faltas — ajuste conforme a regra do seu curso.</div>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 10 }}>
+        <Button variant="secondary" onClick={onClose}>Cancelar</Button>
+        <Button disabled={totalClasses === ""} onClick={() => onSave({ totalClasses: Number(totalClasses), absenceLimitPercent: Number(absenceLimitPercent || 25) })}>Salvar</Button>
+      </div>
+    </Modal>
+  );
+}
+
+function AbsenceFormModal({ open, subject, subjects, schedule, onClose, onSave }) {
+  const [subjectId, setSubjectId] = useState("");
+  const [date, setDate] = useState(todayISO());
+  const [count, setCount] = useState("1");
+  const [notes, setNotes] = useState("");
+
+  useEffect(() => { if (open) { setSubjectId(subject?.id || subjects?.[0]?.id || ""); setDate(todayISO()); setCount("1"); setNotes(""); } }, [open, subject]);
+  if (!subject && (!subjects || subjects.length === 0)) return null;
+
+  const activeSubjectId = subject?.id || subjectId;
+  const activeSubjectName = subject?.name || subjects?.find((s) => s.id === subjectId)?.name || "";
+  const classDays = [...new Set(schedule.filter((s) => s.subjectId === activeSubjectId).map((s) => s.weekday))];
+
+  return (
+    <Modal open={open} onClose={onClose} title={`Registrar falta${activeSubjectName ? ` — ${activeSubjectName}` : ""}`} width={420}>
+      {!subject && <Field label="Matéria"><Select value={subjectId} onChange={setSubjectId} options={(subjects || []).map((s) => ({ value: s.id, label: s.name }))} /></Field>}
+      {classDays.length > 0 && (
+        <Field label="Dias de aula desta matéria — toque para preencher a data">
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {classDays.map((wd) => (
+              <button key={wd} onClick={() => setDate(nearestPastDateForWeekday(wd))} style={{
+                padding: "7px 12px", borderRadius: 999, border: "1px solid var(--border)", background: "var(--bg-alt)",
+                color: "var(--lavender-deep)", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif",
+              }}>{WEEKDAYS[wd]}</button>
+            ))}
+          </div>
+        </Field>
+      )}
+      <Field label="Data da falta"><input type="date" style={fieldStyle} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+      <Field label="Quantidade de aulas perdidas"><input type="number" min="1" step="1" style={fieldStyle} value={count} onChange={(e) => setCount(e.target.value)} /></Field>
+      <Field label="Observações (opcional)"><input style={fieldStyle} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Ex: Consulta médica" /></Field>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 6 }}>
+        <Button variant="secondary" onClick={onClose}>Cancelar</Button>
+        <Button disabled={!date || !count || !activeSubjectId} onClick={() => onSave({ subjectId: activeSubjectId, date, count: Number(count), notes: notes.trim() })}>Salvar</Button>
+      </div>
+    </Modal>
+  );
+}
+
+const STUDY_PURPOSES = [
+  { value: "prova", label: "Prova" },
+  { value: "trabalho", label: "Trabalho" },
+  { value: "reforco", label: "Reforço" },
+  { value: "revisao", label: "Revisão" },
+  { value: "leitura", label: "Leitura" },
+  { value: "outro", label: "Outro" },
+];
+
+function nowHHMM() {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+function QuickStudyModal({ open, subjects, onClose, onSave }) {
+  const [subjectId, setSubjectId] = useState("");
+  const [startTime, setStartTime] = useState("");
+  const [endTime, setEndTime] = useState("");
+  const [purpose, setPurpose] = useState("prova");
+  const [purposeOther, setPurposeOther] = useState("");
+
+  useEffect(() => {
+    if (open) {
+      setSubjectId(subjects[0]?.id || "");
+      setStartTime(nowHHMM());
+      setEndTime("");
+      setPurpose("prova");
+      setPurposeOther("");
+    }
+  }, [open]);
+
+  const duration = (() => {
+    if (!startTime || !endTime) return null;
+    const [sh, sm] = startTime.split(":").map(Number);
+    const [eh, em] = endTime.split(":").map(Number);
+    const mins = (eh * 60 + em) - (sh * 60 + sm);
+    return mins > 0 ? mins : null;
+  })();
+
+  const purposeLabel = purpose === "outro" ? purposeOther.trim() : STUDY_PURPOSES.find((p) => p.value === purpose)?.label;
+
+  const handleSave = () => {
+    onSave({
+      subjectId, date: todayISO(), duration: duration || 0,
+      contentDescription: purposeLabel ? `Estudando para: ${purposeLabel}` : "",
+      notes: "", purpose: purpose === "outro" ? purposeOther.trim() : purpose,
+    });
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title="Iniciar estudo" width={420}>
+      <Field label="Matéria"><Select value={subjectId} onChange={setSubjectId} options={subjects.map((s) => ({ value: s.id, label: s.name }))} /></Field>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <Field label="Começando às"><input type="time" style={fieldStyle} value={startTime} onChange={(e) => setStartTime(e.target.value)} /></Field>
+        <Field label="Até que horas?"><input type="time" style={fieldStyle} value={endTime} onChange={(e) => setEndTime(e.target.value)} /></Field>
+      </div>
+      <Field label="Estudando para quê?">
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {STUDY_PURPOSES.map((p) => (
+            <button key={p.value} onClick={() => setPurpose(p.value)} style={{
+              padding: "7px 12px", borderRadius: 999, border: "1px solid " + (purpose === p.value ? "transparent" : "var(--border)"),
+              background: purpose === p.value ? "var(--lavender-deep)" : "var(--surface)", color: purpose === p.value ? "#fff" : "var(--text-soft)",
+              fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif",
+            }}>{p.label}</button>
+          ))}
+        </div>
+      </Field>
+      {purpose === "outro" && <Field label="Qual finalidade?"><input style={fieldStyle} value={purposeOther} onChange={(e) => setPurposeOther(e.target.value)} placeholder="Ex: Fichamento de texto" /></Field>}
+      {startTime && endTime && !duration && <div style={{ fontSize: 12, color: "var(--danger)", marginBottom: 8 }}>O horário final precisa ser depois do inicial.</div>}
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 6 }}>
+        <Button variant="secondary" onClick={onClose}>Cancelar</Button>
+        <Button disabled={!subjectId || !duration} onClick={handleSave}>Iniciar</Button>
+      </div>
+    </Modal>
+  );
+}
+
+/* ============================================================
+   CALENDAR (Calendário)
+   ============================================================ */
+function CalendarView({ ctx }) {
+  const { data, addItem, removeItem, selectedSemesterId } = ctx;
+  const [cursor, setCursor] = useState(() => { const d = new Date(); d.setDate(1); return d; });
+  const [selected, setSelected] = useState(null);
+  const [vacationModal, setVacationModal] = useState(false);
+  const [holidayModal, setHolidayModal] = useState(false);
+  const [confirmDeleteVacation, setConfirmDeleteVacation] = useState(null);
+  const [confirmDeleteHoliday, setConfirmDeleteHoliday] = useState(null);
+
+  const dayEvents = useMemo(() => {
+    const list = [];
+    data.tasks.forEach((t) => t.dueDate && list.push({ id: "task-" + t.id, date: t.dueDate, title: t.title, type: "Tarefa", color: subjectColor(data, t.subjectId) }));
+    data.exams.forEach((e) => e.date && list.push({ id: "exam-" + e.id, date: e.date, title: `${e.type} — ${subjectName(data, e.subjectId)}`, type: e.type, color: subjectColor(data, e.subjectId) }));
+    data.revisions.forEach((r) => r.date && list.push({ id: "rev-" + r.id, date: r.date, title: `Revisão — ${subjectName(data, r.subjectId)}`, type: "Revisão", color: subjectColor(data, r.subjectId) }));
+    data.studySessions.forEach((s) => s.date && list.push({ id: "study-" + s.id, date: s.date, title: `Estudo — ${subjectName(data, s.subjectId)}`, type: "Estudo", color: subjectColor(data, s.subjectId) }));
+    return list;
+  }, [data]);
+
+  const vacationFor = (iso) => data.vacations.find((v) => isWithinRange(iso, v.startDate, v.endDate));
+  const holidayFor = (iso) => data.holidays.find((h) => h.date === iso);
+  const isCancelled = (scheduleId, iso) => data.cancelledClasses.some((c) => c.scheduleId === scheduleId && c.date === iso);
+
+  const eventsFor = (iso) => {
+    const list = dayEvents.filter((e) => e.date === iso);
+    const holiday = holidayFor(iso);
+    if (holiday) { list.push({ id: "holiday-" + holiday.id, date: iso, title: holiday.label || "Feriado", type: "Feriado", color: "var(--accent-rose)" }); return list; }
+    if (vacationFor(iso)) return list; // sem aulas durante férias
+    const [y, m, d] = iso.split("-").map(Number);
+    const wd = (new Date(y, m - 1, d).getDay() + 6) % 7;
+    data.schedule.filter((s) => s.weekday === wd && !isCancelled(s.id, iso)).forEach((s) => list.push({ id: "class-" + s.id + iso, scheduleId: s.id, date: iso, title: `${subjectName(data, s.subjectId)}${s.startTime ? " · " + s.startTime : ""}`, type: "Aula", color: subjectColor(data, s.subjectId), recurring: true }));
+    data.internships.filter((it) => it.weekday === wd).forEach((it) => list.push({ id: "intern-" + it.id + iso, date: iso, title: `Estágio — ${it.local}`, type: "Estágio", color: "var(--accent-mint)", recurring: true }));
+    return list;
+  };
+
+  const year = cursor.getFullYear(), month = cursor.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const startOffset = firstDay.getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < startOffset; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+  const monthLabel = cursor.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+  const selectedEvents = selected ? eventsFor(selected) : [];
+  const selectedVacation = selected ? vacationFor(selected) : null;
+  const selectedHoliday = selected ? holidayFor(selected) : null;
+
+  return (
+    <div>
+      <PageHeader title="Calendário" subtitle="Provas, trabalhos, tarefas, revisões, aulas, estágio, férias e feriados — tudo sincronizado." right={
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <Button size="sm" icon="flag" variant="secondary" onClick={() => setHolidayModal(true)}>Adicionar feriado</Button>
+          <Button size="sm" icon="sun" variant="secondary" onClick={() => setVacationModal(true)}>Registrar férias</Button>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 11, padding: "5px 6px" }}>
+            <IconBtn icon="chevronLeft" onClick={() => setCursor(new Date(year, month - 1, 1))} />
+            <span style={{ fontSize: 13, fontWeight: 700, textTransform: "capitalize", minWidth: 120, textAlign: "center" }}>{monthLabel}</span>
+            <IconBtn icon="chevronRight" onClick={() => setCursor(new Date(year, month + 1, 1))} />
+          </div>
+        </div>
+      } />
+
+      {(data.vacations.length > 0 || data.holidays.length > 0) && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+          {data.vacations.map((v) => (
+            <div key={v.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 11px", borderRadius: 999, background: "var(--accent-honey-bg)" }}>
+              <Icon name="sun" size={14} style={{ color: "var(--accent-honey)" }} />
+              <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text)" }}>{v.label || "Férias"} · {fmtDate(v.startDate)} – {fmtDate(v.endDate)}</span>
+              <button onClick={() => setConfirmDeleteVacation(v.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-mute)", display: "flex" }}><Icon name="close" size={13} /></button>
+            </div>
+          ))}
+          {data.holidays.map((h) => (
+            <div key={h.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 11px", borderRadius: 999, background: "var(--accent-rose-bg)" }}>
+              <Icon name="flag" size={14} style={{ color: "var(--accent-rose)" }} />
+              <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text)" }}>{h.label || "Feriado"} · {fmtDate(h.date)}</span>
+              <button onClick={() => setConfirmDeleteHoliday(h.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-mute)", display: "flex" }}><Icon name="close" size={13} /></button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 280px", gap: 16, alignItems: "start" }}>
+        <div style={{ background: "var(--surface)", border: "1px solid var(--border-soft)", borderRadius: "var(--radius-lg)", padding: 16, boxShadow: "var(--shadow-sm)" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, marginBottom: 6 }}>
+            {["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map((d) => <div key={d} style={{ fontSize: 11.5, fontWeight: 700, color: "var(--text-mute)", textAlign: "center", padding: "4px 0" }}>{d}</div>)}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
+            {cells.map((d, i) => {
+              if (!d) return <div key={i} />;
+              const iso = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+              const evs = eventsFor(iso);
+              const onVacation = vacationFor(iso);
+              const onHoliday = holidayFor(iso);
+              const isToday = iso === todayISO();
+              const isSelected = iso === selected;
+              return (
+                <button key={i} onClick={() => setSelected(iso)} style={{
+                  minHeight: 62, borderRadius: 10, border: isSelected ? "2px solid var(--lavender-deep)" : "1px solid var(--border-soft)",
+                  background: onHoliday ? "var(--accent-rose-bg)" : onVacation ? "var(--accent-honey-bg)" : isToday ? "var(--bg-alt)" : "var(--surface)", padding: "6px 5px", cursor: "pointer", textAlign: "left",
+                  display: "flex", flexDirection: "column", gap: 3, overflow: "hidden",
+                }}>
+                  <span style={{ fontSize: 12, fontWeight: isToday ? 800 : 600, color: isToday ? "var(--lavender-deep)" : "var(--text)" }}>{d}</span>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                    {evs.slice(0, 3).map((e) => <div key={e.id} style={{ height: 4, borderRadius: 3, background: e.color, opacity: e.recurring ? 0.55 : 1 }} />)}
+                    {evs.length > 3 && <span style={{ fontSize: 9, color: "var(--text-mute)" }}>+{evs.length - 3}</span>}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <Panel title={selected ? fmtDayButton(selected) : "Selecione um dia"}>
+          {!selected ? <EmptyRow text="Clique em um dia para ver os detalhes." /> : (
+            <>
+              {selectedHoliday && (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", borderRadius: 10, background: "var(--accent-rose-bg)", marginBottom: 8 }}>
+                  <Icon name="flag" size={15} style={{ color: "var(--accent-rose)" }} />
+                  <span style={{ fontSize: 12.5, fontWeight: 600 }}>{selectedHoliday.label || "Feriado"} — sem aulas neste dia</span>
+                </div>
+              )}
+              {selectedVacation && (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", borderRadius: 10, background: "var(--accent-honey-bg)", marginBottom: 8 }}>
+                  <Icon name="sun" size={15} style={{ color: "var(--accent-honey)" }} />
+                  <span style={{ fontSize: 12.5, fontWeight: 600 }}>{selectedVacation.label || "Férias"}</span>
+                </div>
+              )}
+              {selectedEvents.length === 0 ? <EmptyRow text="Nada agendado para este dia." /> : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {selectedEvents.map((e) => (
+                    <div key={e.id} style={{ padding: "10px 11px", borderRadius: 10, background: "var(--bg-alt)", display: "flex", flexDirection: "column", gap: 3 }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 7 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                          <SubjectDot color={e.color} />
+                          <span style={{ fontSize: 12, fontWeight: 700, color: "var(--lavender-deep)" }}>{e.type}</span>
+                        </div>
+                        {e.type === "Aula" && e.scheduleId && (
+                          <button title="Cancelar esta aula (ex: professor faltou)" onClick={() => addItem("cancelledClasses", { scheduleId: e.scheduleId, date: selected, semesterId: selectedSemesterId })} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-mute)", display: "flex" }}>
+                            <Icon name="close" size={13} />
+                          </button>
+                        )}
+                      </div>
+                      <span style={{ fontSize: 13.5, fontWeight: 500 }}>{e.title}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {data.cancelledClasses.filter((c) => c.date === selected).length > 0 && (
+                <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+                  {data.cancelledClasses.filter((c) => c.date === selected).map((c) => {
+                    const sch = data.schedule.find((s) => s.id === c.scheduleId);
+                    return (
+                      <div key={c.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "7px 10px", borderRadius: 9, background: "var(--bg-alt)" }}>
+                        <span style={{ fontSize: 12, color: "var(--text-mute)" }}>Aula de {sch ? subjectName(data, sch.subjectId) : "matéria removida"} cancelada neste dia</span>
+                        <button onClick={() => removeItem("cancelledClasses", c.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--lavender-deep)", fontSize: 11.5, fontWeight: 700 }}>Restaurar</button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          )}
+        </Panel>
+      </div>
+
+      <VacationFormModal open={vacationModal} onClose={() => setVacationModal(false)}
+        onSave={(vals) => { addItem("vacations", { ...vals, semesterId: selectedSemesterId }); setVacationModal(false); }} />
+      <HolidayFormModal open={holidayModal} onClose={() => setHolidayModal(false)}
+        onSave={(vals) => { addItem("holidays", { ...vals, semesterId: selectedSemesterId }); setHolidayModal(false); }} />
+      <ConfirmDialog open={!!confirmDeleteVacation} onCancel={() => setConfirmDeleteVacation(null)} message="Este período de férias será removido do calendário."
+        onConfirm={() => { removeItem("vacations", confirmDeleteVacation); setConfirmDeleteVacation(null); }} />
+      <ConfirmDialog open={!!confirmDeleteHoliday} onCancel={() => setConfirmDeleteHoliday(null)} message="Este feriado será removido do calendário e as aulas voltam a aparecer normalmente nesse dia."
+        onConfirm={() => { removeItem("holidays", confirmDeleteHoliday); setConfirmDeleteHoliday(null); }} />
+    </div>
+  );
+}
+
+function HolidayFormModal({ open, onClose, onSave }) {
+  const [label, setLabel] = useState("");
+  const [date, setDate] = useState("");
+
+  useEffect(() => { if (open) { setLabel(""); setDate(""); } }, [open]);
+
+  return (
+    <Modal open={open} onClose={onClose} title="Adicionar feriado" width={380}>
+      <Field label="Nome do feriado (opcional)"><input style={fieldStyle} value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Ex: Independência do Brasil" /></Field>
+      <Field label="Data"><input type="date" style={fieldStyle} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+      <div style={{ fontSize: 12, color: "var(--text-mute)", marginBottom: 6 }}>Nesse dia, nenhuma aula recorrente da grade de horários aparecerá no calendário.</div>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 6 }}>
+        <Button variant="secondary" onClick={onClose}>Cancelar</Button>
+        <Button disabled={!date} onClick={() => onSave({ label: label.trim(), date })}>Salvar</Button>
+      </div>
+    </Modal>
+  );
+}
+
+function VacationFormModal({ open, onClose, onSave }) {
+  const [label, setLabel] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+
+  useEffect(() => { if (open) { setLabel(""); setStartDate(""); setEndDate(""); } }, [open]);
+
+  return (
+    <Modal open={open} onClose={onClose} title="Registrar férias" width={420}>
+      <Field label="Nome do período (opcional)"><input style={fieldStyle} value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Ex: Férias de julho" /></Field>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <Field label="Início"><input type="date" style={fieldStyle} value={startDate} onChange={(e) => setStartDate(e.target.value)} /></Field>
+        <Field label="Fim"><input type="date" style={fieldStyle} value={endDate} onChange={(e) => setEndDate(e.target.value)} /></Field>
+      </div>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 6 }}>
+        <Button variant="secondary" onClick={onClose}>Cancelar</Button>
+        <Button disabled={!startDate || !endDate || endDate < startDate} onClick={() => onSave({ label: label.trim(), startDate, endDate })}>Salvar</Button>
+      </div>
+    </Modal>
+  );
+}
+
+/* ============================================================
+   SCHEDULE (Grade de Horários)
+   ============================================================ */
+function ScheduleView({ ctx }) {
+  const { data, addItem, editItem, removeItem, semesters, selectedSemesterId } = ctx;
+  const [modal, setModal] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const semesterLabel = semesters.find((s) => s.id === selectedSemesterId)?.label || "";
+
+  const byDay = WEEKDAYS.map((label, idx) => ({
+    label, idx,
+    items: data.schedule.filter((s) => s.weekday === idx).sort((a, b) => (a.startTime || "").localeCompare(b.startTime || "")),
+  }));
+  const hasAny = data.schedule.length > 0;
+
+  return (
+    <div>
+      <PageHeader title="Grade de Horários" subtitle={`Suas aulas da semana — ${semesterLabel}.`} right={<Button icon="plus" onClick={() => setModal({ mode: "new" })} disabled={data.subjects.length === 0}>Nova aula</Button>} />
+
+      {data.subjects.length === 0 ? (
+        <EmptyState icon="grid" title="Cadastre uma matéria antes de montar sua grade" subtitle="Cada aula da grade precisa estar vinculada a uma matéria deste semestre." />
+      ) : !hasAny ? (
+        <EmptyState icon="grid" title="Sua grade deste semestre ainda está vazia" subtitle="Adicione os dias, horários e professores das suas aulas para visualizar sua semana." actionLabel="Nova aula" onAction={() => setModal({ mode: "new" })} />
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
+          {byDay.filter((d) => d.items.length > 0 || d.idx < 5).map((d) => (
+            <div key={d.idx} style={{ background: "var(--surface)", border: "1px solid var(--border-soft)", borderRadius: "var(--radius-md)", padding: 13, boxShadow: "var(--shadow-sm)" }}>
+              <div style={{ fontFamily: "'Fraunces', serif", fontSize: 15, fontWeight: 500, marginBottom: 10 }}>{d.label}</div>
+              {d.items.length === 0 ? (
+                <div style={{ fontSize: 12, color: "var(--text-mute)" }}>Sem aulas</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {d.items.map((it) => (
+                    <div key={it.id} className="eo-card" style={{ borderLeft: `3px solid ${subjectColor(data, it.subjectId)}`, background: "var(--bg-alt)", borderRadius: 8, padding: "8px 10px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 6 }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--text)" }}>{subjectName(data, it.subjectId)}</div>
+                          <div style={{ fontSize: 11.5, color: "var(--text-mute)" }}>{it.startTime}{it.endTime ? `–${it.endTime}` : ""}</div>
+                          {it.professor && <div style={{ fontSize: 11.5, color: "var(--text-soft)" }}>{it.professor}</div>}
+                          {it.location && <div style={{ fontSize: 11, color: "var(--text-mute)" }}>{it.location}</div>}
+                        </div>
+                        <div style={{ display: "flex", gap: 1, flexShrink: 0 }}>
+                          <IconBtn icon="edit" onClick={() => setModal({ mode: "edit", entry: it })} />
+                          <IconBtn icon="trash" onClick={() => setConfirmDelete(it.id)} />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <ScheduleFormModal open={!!modal} mode={modal?.mode} entry={modal?.entry} subjects={data.subjects} onClose={() => setModal(null)}
+        onSave={(vals) => { modal.mode === "new" ? addItem("schedule", { ...vals, semesterId: selectedSemesterId }) : editItem("schedule", modal.entry.id, vals); setModal(null); }} />
+      <ConfirmDialog open={!!confirmDelete} onCancel={() => setConfirmDelete(null)} message="Esta aula será removida da sua grade de horários."
+        onConfirm={() => { removeItem("schedule", confirmDelete); setConfirmDelete(null); }} />
+    </div>
+  );
+}
+
+function ScheduleFormModal({ open, mode, entry, subjects, onClose, onSave }) {
+  const [subjectId, setSubjectId] = useState("");
+  const [weekday, setWeekday] = useState(0);
+  const [startTime, setStartTime] = useState("");
+  const [endTime, setEndTime] = useState("");
+  const [professor, setProfessor] = useState("");
+  const [location, setLocation] = useState("");
+  const [notes, setNotes] = useState("");
+
+  useEffect(() => {
+    if (open) {
+      setSubjectId(entry?.subjectId || subjects[0]?.id || "");
+      setWeekday(entry?.weekday ?? 0);
+      setStartTime(entry?.startTime || "");
+      setEndTime(entry?.endTime || "");
+      setProfessor(entry?.professor || "");
+      setLocation(entry?.location || "");
+      setNotes(entry?.notes || "");
+    }
+  }, [open, entry]);
+
+  return (
+    <Modal open={open} onClose={onClose} title={mode === "new" ? "Nova aula" : "Editar aula"}>
+      <Field label="Matéria"><Select value={subjectId} onChange={setSubjectId} options={subjects.map((s) => ({ value: s.id, label: s.name }))} /></Field>
+      <Field label="Dia da semana"><Select value={String(weekday)} onChange={(v) => setWeekday(Number(v))} options={WEEKDAYS.map((w, i) => ({ value: String(i), label: w }))} /></Field>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <Field label="Início"><input type="time" style={fieldStyle} value={startTime} onChange={(e) => setStartTime(e.target.value)} /></Field>
+        <Field label="Término"><input type="time" style={fieldStyle} value={endTime} onChange={(e) => setEndTime(e.target.value)} /></Field>
+      </div>
+      <Field label="Professor(a) (opcional)"><input style={fieldStyle} value={professor} onChange={(e) => setProfessor(e.target.value)} placeholder="Ex: Profa. Dra. Ana Souza" /></Field>
+      <Field label="Sala / local (opcional)"><input style={fieldStyle} value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Ex: Sala 12 ou link da aula online" /></Field>
+      <Field label="Observações (opcional)"><textarea style={{ ...fieldStyle, minHeight: 55, resize: "vertical" }} value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 6 }}>
+        <Button variant="secondary" onClick={onClose}>Cancelar</Button>
+        <Button disabled={!subjectId || !startTime} onClick={() => onSave({ subjectId, weekday, startTime, endTime, professor: professor.trim(), location: location.trim(), notes: notes.trim() })}>Salvar</Button>
+      </div>
+    </Modal>
+  );
+}
+
+/* ============================================================
+   CONTENTS (Conteúdos)
+   ============================================================ */
+const CONTENT_STATUS = {
+  nao_estudado: { label: "Não estudado", color: "var(--text-mute)", bg: "var(--bg-alt)" },
+  em_andamento: { label: "Em andamento", color: "var(--warning)", bg: "var(--warning-bg)" },
+  estudado: { label: "Estudado", color: "var(--success)", bg: "var(--success-bg)" },
+  revisar: { label: "Revisar", color: "var(--danger)", bg: "var(--danger-bg)" },
+};
+const CONTENT_TYPES = { anotacao: "note", drive: "cloud", pdf: "file", documento: "doc", apresentacao: "presentation", imagem: "image", link: "link", video: "video", resumo: "note", arquivo: "file" };
+const CONTENT_TYPE_LABELS = { anotacao: "Anotação própria", drive: "Google Drive", pdf: "PDF", documento: "Documento", apresentacao: "Apresentação", imagem: "Imagem", link: "Link externo", video: "Vídeo", resumo: "Resumo", arquivo: "Arquivo" };
+const LINKED_TYPES = ["drive", "pdf", "documento", "apresentacao", "imagem", "link", "video", "arquivo"];
+
+function ContentsView({ ctx }) {
+  const { data, addItem, editItem, removeItem } = ctx;
+  const [modal, setModal] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [subjectFilter, setSubjectFilter] = useState("");
+
+  const filtered = data.contents.filter((c) => !subjectFilter || c.subjectId === subjectFilter);
+  const grouped = data.subjects.map((s) => ({ subject: s, items: filtered.filter((c) => c.subjectId === s.id) })).filter((g) => !subjectFilter || g.items.length >= 0);
+
+  return (
+    <div>
+      <PageHeader title="Conteúdos" subtitle="Materiais de estudo organizados por matéria — incluindo arquivos do Google Drive." right={<Button icon="plus" onClick={() => setModal({ mode: "new" })} disabled={data.subjects.length === 0}>Novo conteúdo</Button>} />
+
+      {data.subjects.length === 0 ? (
+        <EmptyState title="Cadastre uma matéria antes de adicionar conteúdos" subtitle="Os conteúdos precisam estar vinculados a uma matéria, como Psicologia Social ou Ética Profissional." />
+      ) : data.contents.length === 0 ? (
+        <EmptyState title="Você ainda não possui conteúdos cadastrados" subtitle="Adicione anotações, PDFs, documentos, apresentações ou links do Google Drive para organizar seu material de estudo." actionLabel="Novo conteúdo" onAction={() => setModal({ mode: "new" })} />
+      ) : (
+        <>
+          <div style={{ marginBottom: 16, maxWidth: 220 }}>
+            <Select value={subjectFilter} onChange={setSubjectFilter} placeholder="Todas as matérias" options={data.subjects.map((s) => ({ value: s.id, label: s.name }))} />
+          </div>
+          {grouped.filter((g) => g.items.length > 0).map((g) => (
+            <div key={g.subject.id} style={{ marginBottom: 20 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                <SubjectDot color={g.subject.color} size={10} />
+                <span style={{ fontFamily: "'Fraunces', serif", fontSize: 16, fontWeight: 500 }}>{g.subject.name}</span>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 10 }}>
+                {g.items.map((c) => (
+                  <div key={c.id} className="eo-card" style={{ background: "var(--surface)", border: "1px solid var(--border-soft)", borderRadius: "var(--radius-md)", padding: 13, boxShadow: "var(--shadow-sm)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--lavender-deep)" }}>
+                        <Icon name={CONTENT_TYPES[c.type] || "note"} size={16} />
+                        <span style={{ fontSize: 11.5, fontWeight: 700, color: "var(--text-mute)" }}>{CONTENT_TYPE_LABELS[c.type]}</span>
+                      </div>
+                      <div style={{ display: "flex", gap: 2 }}>
+                        <IconBtn icon="edit" onClick={() => setModal({ mode: "edit", content: c })} />
+                        <IconBtn icon="trash" onClick={() => setConfirmDelete(c.id)} />
+                      </div>
+                    </div>
+                    <div style={{ fontWeight: 600, fontSize: 14, margin: "8px 0 4px" }}>{c.title}</div>
+                    {c.link && (
+                      <a href={c.link} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "var(--accent-sky)", wordBreak: "break-all", display: "block", marginBottom: 6 }}>
+                        {c.link.length > 42 ? c.link.slice(0, 42) + "…" : c.link}
+                      </a>
+                    )}
+                    {c.addedDate && <div style={{ fontSize: 11, color: "var(--text-mute)", marginBottom: 8 }}>Adicionado em {fmtDate(c.addedDate)}</div>}
+                    <select value={c.status} onChange={(e) => editItem("contents", c.id, { status: e.target.value })} style={{
+                      fontSize: 11.5, fontWeight: 700, padding: "4px 8px", borderRadius: 999, border: "none",
+                      color: CONTENT_STATUS[c.status].color, background: CONTENT_STATUS[c.status].bg, cursor: "pointer",
+                    }}>
+                      {Object.entries(CONTENT_STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+
+      <ContentFormModal open={!!modal} mode={modal?.mode} content={modal?.content} subjects={data.subjects} onClose={() => setModal(null)}
+        onSave={(vals) => { modal.mode === "new" ? addItem("contents", { ...vals, status: "nao_estudado", addedDate: todayISO() }) : editItem("contents", modal.content.id, vals); setModal(null); }} />
+      <ConfirmDialog open={!!confirmDelete} onCancel={() => setConfirmDelete(null)} message="Este conteúdo será excluído permanentemente."
+        onConfirm={() => { removeItem("contents", confirmDelete); setConfirmDelete(null); }} />
+    </div>
+  );
+}
+
+function ContentFormModal({ open, mode, content, subjects, onClose, onSave }) {
+  const [title, setTitle] = useState("");
+  const [subjectId, setSubjectId] = useState("");
+  const [type, setType] = useState("anotacao");
+  const [link, setLink] = useState("");
+  const [notes, setNotes] = useState("");
+
+  useEffect(() => {
+    if (open) {
+      setTitle(content?.title || "");
+      setSubjectId(content?.subjectId || subjects[0]?.id || "");
+      setType(content?.type || "anotacao");
+      setLink(content?.link || "");
+      setNotes(content?.notes || "");
+    }
+  }, [open, content]);
+
+  const isLinked = LINKED_TYPES.includes(type);
+
+  return (
+    <Modal open={open} onClose={onClose} title={mode === "new" ? "Novo conteúdo" : "Editar conteúdo"}>
+      <Field label="Nome do conteúdo"><input style={fieldStyle} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ex: Resumo — Psicologia do Desenvolvimento" autoFocus /></Field>
+      <Field label="Matéria"><Select value={subjectId} onChange={setSubjectId} options={subjects.map((s) => ({ value: s.id, label: s.name }))} /></Field>
+      <Field label="Tipo"><Select value={type} onChange={setType} options={Object.entries(CONTENT_TYPE_LABELS).filter(([v]) => v !== "resumo" && v !== "arquivo").map(([v, label]) => ({ value: v, label }))} /></Field>
+      {isLinked && (
+        <Field label={type === "drive" ? "Link do Google Drive" : "Link ou arquivo"}>
+          <input style={fieldStyle} value={link} onChange={(e) => setLink(e.target.value)} placeholder={type === "drive" ? "https://drive.google.com/…" : "https://…"} />
+          {type === "drive" && <div style={{ fontSize: 11.5, color: "var(--text-mute)", marginTop: 6 }}>Cole aqui o link de compartilhamento do arquivo no Google Drive. A conexão direta com sua conta do Drive poderá ser adicionada quando essa integração estiver disponível.</div>}
+        </Field>
+      )}
+      <Field label="Descrição / observações (opcional)"><textarea style={{ ...fieldStyle, minHeight: 70, resize: "vertical" }} value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 6 }}>
+        <Button variant="secondary" onClick={onClose}>Cancelar</Button>
+        <Button disabled={!title.trim() || !subjectId} onClick={() => onSave({ title: title.trim(), subjectId, type, link: link.trim(), notes: notes.trim() })}>Salvar</Button>
+      </div>
+    </Modal>
+  );
+}
+
+/* ============================================================
+   STUDY (Estudos) — with a working timer
+   ============================================================ */
+function StudyView({ ctx }) {
+  const { data, addItem, removeItem } = ctx;
+  const [modal, setModal] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [timerRunning, setTimerRunning] = useState(false);
+  const [timerSeconds, setTimerSeconds] = useState(0);
+  const [timerSubject, setTimerSubject] = useState("");
+  const intervalRef = useRef(null);
+
+  useEffect(() => {
+    if (timerRunning) {
+      intervalRef.current = setInterval(() => setTimerSeconds((s) => s + 1), 1000);
+    } else if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+    }
+    return () => intervalRef.current && clearInterval(intervalRef.current);
+  }, [timerRunning]);
+
+  const stopAndSave = () => {
+    setTimerRunning(false);
+    if (timerSeconds >= 60 && timerSubject) {
+      addItem("studySessions", { subjectId: timerSubject, date: todayISO(), duration: Math.round(timerSeconds / 60), contentDescription: "Sessão cronometrada", notes: "" });
+    }
+    setTimerSeconds(0);
+  };
+
+  const sessions = [...data.studySessions].sort((a, b) => b.date.localeCompare(a.date));
+  const totalMin = data.studySessions.reduce((s, x) => s + Number(x.duration || 0), 0);
+  const bySubject = data.subjects.map((s) => ({ subject: s, min: data.studySessions.filter((x) => x.subjectId === s.id).reduce((sum, x) => sum + Number(x.duration || 0), 0) })).filter((x) => x.min > 0);
+  const maxMin = Math.max(1, ...bySubject.map((x) => x.min));
+
+  const fmtTimer = (s) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+
+  return (
+    <div>
+      <PageHeader title="Estudos" subtitle="Registre suas sessões e acompanhe sua evolução." right={<Button icon="plus" onClick={() => setModal({ mode: "new" })} disabled={data.subjects.length === 0}>Registrar sessão</Button>} />
+
+      {data.subjects.length === 0 ? (
+        <EmptyState title="Cadastre uma matéria antes de registrar estudos" subtitle="As sessões de estudo precisam estar vinculadas a uma matéria." />
+      ) : (
+        <>
+          <div style={{ background: "var(--surface)", border: "1px solid var(--border-soft)", borderRadius: "var(--radius-lg)", padding: 20, marginBottom: 18, boxShadow: "var(--shadow-sm)", display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" }}>
+            <div style={{ fontFamily: "'Fraunces', serif", fontSize: 34, fontWeight: 500, minWidth: 110, color: timerRunning ? "var(--lavender-deep)" : "var(--text)" }}>{fmtTimer(timerSeconds)}</div>
+            <div style={{ flex: 1, minWidth: 160 }}>
+              <Select value={timerSubject} onChange={setTimerSubject} placeholder="Selecione a matéria" options={data.subjects.map((s) => ({ value: s.id, label: s.name }))} />
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {!timerRunning ? <Button icon="play" disabled={!timerSubject} onClick={() => setTimerRunning(true)}>{timerSeconds > 0 ? "Continuar" : "Iniciar"}</Button> : <Button icon="pause" variant="secondary" onClick={() => setTimerRunning(false)}>Pausar</Button>}
+              {timerSeconds > 0 && <Button icon="stop" variant="danger" onClick={stopAndSave}>Encerrar</Button>}
+            </div>
+          </div>
+
+          {bySubject.length > 0 && (
+            <Panel title="Tempo por matéria">
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {bySubject.sort((a, b) => b.min - a.min).map((x) => (
+                  <div key={x.subject.id}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}>
+                      <span style={{ display: "flex", alignItems: "center", gap: 7, fontWeight: 600 }}><SubjectDot color={x.subject.color} />{x.subject.name}</span>
+                      <span style={{ color: "var(--text-mute)" }}>{Math.floor(x.min / 60)}h {x.min % 60}min</span>
+                    </div>
+                    <div style={{ height: 7, borderRadius: 6, background: "var(--bg-alt)" }}><div style={{ height: "100%", width: `${(x.min / maxMin) * 100}%`, background: x.subject.color, borderRadius: 6 }} /></div>
+                  </div>
+                ))}
+              </div>
+            </Panel>
+          )}
+
+          <div style={{ marginTop: 18 }}>
+            <Panel title={`Histórico de sessões · total ${Math.floor(totalMin / 60)}h ${totalMin % 60}min`}>
+              {sessions.length === 0 ? <EmptyRow text="Nenhuma sessão registrada ainda." /> : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                  {sessions.map((s, i) => (
+                    <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 6px", borderBottom: i < sessions.length - 1 ? "1px solid var(--border-soft)" : "none" }}>
+                      <SubjectDot color={subjectColor(data, s.subjectId)} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13.5, fontWeight: 600 }}>{subjectName(data, s.subjectId)}</div>
+                        {s.contentDescription && <div style={{ fontSize: 12, color: "var(--text-mute)" }}>{s.contentDescription}</div>}
+                      </div>
+                      <span style={{ fontSize: 12.5, color: "var(--text-soft)", fontWeight: 600 }}>{fmtDate(s.date)}</span>
+                      <Badge>{s.duration} min</Badge>
+                      <IconBtn icon="trash" onClick={() => setConfirmDelete(s.id)} />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Panel>
+          </div>
+        </>
+      )}
+
+      <StudyFormModal open={!!modal} subjects={data.subjects} onClose={() => setModal(null)} onSave={(vals) => { addItem("studySessions", vals); setModal(null); }} />
+      <ConfirmDialog open={!!confirmDelete} onCancel={() => setConfirmDelete(null)} message="Este registro de estudo será excluído permanentemente."
+        onConfirm={() => { removeItem("studySessions", confirmDelete); setConfirmDelete(null); }} />
+    </div>
+  );
+}
+
+function StudyFormModal({ open, subjects, onClose, onSave }) {
+  const [subjectId, setSubjectId] = useState("");
+  const [date, setDate] = useState(todayISO());
+  const [duration, setDuration] = useState("");
+  const [contentDescription, setContentDescription] = useState("");
+  const [notes, setNotes] = useState("");
+
+  useEffect(() => { if (open) { setSubjectId(subjects[0]?.id || ""); setDate(todayISO()); setDuration(""); setContentDescription(""); setNotes(""); } }, [open]);
+
+  return (
+    <Modal open={open} onClose={onClose} title="Registrar sessão de estudo">
+      <Field label="Matéria"><Select value={subjectId} onChange={setSubjectId} options={subjects.map((s) => ({ value: s.id, label: s.name }))} /></Field>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <Field label="Data"><input type="date" style={fieldStyle} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+        <Field label="Tempo estudado (minutos)"><input type="number" min="1" style={fieldStyle} value={duration} onChange={(e) => setDuration(e.target.value)} placeholder="Ex: 50" /></Field>
+      </div>
+      <Field label="Conteúdo estudado"><input style={fieldStyle} value={contentDescription} onChange={(e) => setContentDescription(e.target.value)} placeholder="Ex: Leitura sobre Avaliação Psicológica" /></Field>
+      <Field label="Observações (opcional)"><textarea style={{ ...fieldStyle, minHeight: 55, resize: "vertical" }} value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 6 }}>
+        <Button variant="secondary" onClick={onClose}>Cancelar</Button>
+        <Button disabled={!subjectId || !duration} onClick={() => onSave({ subjectId, date, duration: Number(duration), contentDescription: contentDescription.trim(), notes: notes.trim() })}>Salvar</Button>
+      </div>
+    </Modal>
+  );
+}
+
+/* ============================================================
+   REVISIONS (Revisões)
+   ============================================================ */
+function RevisionsView({ ctx }) {
+  const { data, addItem, editItem, removeItem } = ctx;
+  const [modal, setModal] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [filter, setFilter] = useState("pending");
+
+  const withMeta = data.revisions.map((r) => ({ ...r, late: r.status !== "done" && daysDiff(r.date) < 0 }));
+  const filtered = withMeta.filter((r) => {
+    if (filter === "pending") return r.status !== "done";
+    if (filter === "late") return r.late;
+    if (filter === "done") return r.status === "done";
+    if (filter === "upcoming") return r.status !== "done" && !r.late;
+    return true;
+  }).sort((a, b) => a.date.localeCompare(b.date));
+
+  return (
+    <div>
+      <PageHeader title="Revisões" subtitle="Reforce o que já foi estudado, no momento certo." right={<Button icon="plus" onClick={() => setModal({ mode: "new" })} disabled={data.subjects.length === 0}>Nova revisão</Button>} />
+
+      {data.subjects.length === 0 ? (
+        <EmptyState title="Cadastre uma matéria antes de criar revisões" subtitle="As revisões precisam estar vinculadas a uma matéria." />
+      ) : (
+        <>
+          <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+            <FilterChip label="Próximas" active={filter === "upcoming"} onClick={() => setFilter("upcoming")} />
+            <FilterChip label="Pendentes" active={filter === "pending"} onClick={() => setFilter("pending")} />
+            <FilterChip label="Atrasadas" active={filter === "late"} onClick={() => setFilter("late")} tone="danger" />
+            <FilterChip label="Concluídas" active={filter === "done"} onClick={() => setFilter("done")} />
+          </div>
+
+          {filtered.length === 0 ? (
+            <EmptyState title="Nenhuma revisão neste filtro" subtitle="Crie revisões para reforçar conteúdos já estudados." actionLabel="Nova revisão" onAction={() => setModal({ mode: "new" })} />
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {filtered.map((r) => {
+                const content = data.contents.find((c) => c.id === r.contentId);
+                return (
+                  <div key={r.id} className="eo-card" style={{ display: "flex", alignItems: "center", gap: 12, background: "var(--surface)", border: "1px solid var(--border-soft)", borderRadius: "var(--radius-md)", padding: "13px 14px", boxShadow: "var(--shadow-sm)" }}>
+                    <button onClick={() => editItem("revisions", r.id, { status: r.status === "done" ? "pending" : "done" })} style={{
+                      width: 22, height: 22, borderRadius: 7, border: `2px solid ${r.status === "done" ? "var(--success)" : "var(--border)"}`,
+                      background: r.status === "done" ? "var(--success)" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#fff", flexShrink: 0,
+                    }}>{r.status === "done" && <Icon name="check" size={13} />}</button>
+                    <SubjectDot color={subjectColor(data, r.subjectId)} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, textDecoration: r.status === "done" ? "line-through" : "none" }}>{subjectName(data, r.subjectId)}{content ? ` — ${content.title}` : ""}</div>
+                      {r.notes && <div style={{ fontSize: 12, color: "var(--text-mute)" }}>{r.notes}</div>}
+                    </div>
+                    <span style={{ fontSize: 12.5, fontWeight: 700, color: r.late ? "var(--danger)" : "var(--text-soft)" }}>{fmtDate(r.date)}</span>
+                    <div style={{ display: "flex", gap: 2 }}>
+                      <IconBtn icon="edit" onClick={() => setModal({ mode: "edit", revision: r })} />
+                      <IconBtn icon="trash" onClick={() => setConfirmDelete(r.id)} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
+
+      <RevisionFormModal open={!!modal} mode={modal?.mode} revision={modal?.revision} subjects={data.subjects} contents={data.contents} onClose={() => setModal(null)}
+        onSave={(vals) => { modal.mode === "new" ? addItem("revisions", { ...vals, status: "pending" }) : editItem("revisions", modal.revision.id, vals); setModal(null); }} />
+      <ConfirmDialog open={!!confirmDelete} onCancel={() => setConfirmDelete(null)} message="Esta revisão será excluída permanentemente."
+        onConfirm={() => { removeItem("revisions", confirmDelete); setConfirmDelete(null); }} />
+    </div>
+  );
+}
+
+function RevisionFormModal({ open, mode, revision, subjects, contents, onClose, onSave }) {
+  const [subjectId, setSubjectId] = useState("");
+  const [contentId, setContentId] = useState("");
+  const [date, setDate] = useState("");
+  const [notes, setNotes] = useState("");
+
+  useEffect(() => {
+    if (open) {
+      setSubjectId(revision?.subjectId || subjects[0]?.id || "");
+      setContentId(revision?.contentId || "");
+      setDate(revision?.date || todayISO());
+      setNotes(revision?.notes || "");
+    }
+  }, [open, revision]);
+
+  const subjectContents = contents.filter((c) => c.subjectId === subjectId);
+
+  return (
+    <Modal open={open} onClose={onClose} title={mode === "new" ? "Nova revisão" : "Editar revisão"}>
+      <Field label="Matéria"><Select value={subjectId} onChange={(v) => { setSubjectId(v); setContentId(""); }} options={subjects.map((s) => ({ value: s.id, label: s.name }))} /></Field>
+      {subjectContents.length > 0 && <Field label="Conteúdo relacionado (opcional)"><Select value={contentId} onChange={setContentId} placeholder="Nenhum" options={subjectContents.map((c) => ({ value: c.id, label: c.title }))} /></Field>}
+      <Field label="Data"><input type="date" style={fieldStyle} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+      <Field label="Observações (opcional)"><textarea style={{ ...fieldStyle, minHeight: 55, resize: "vertical" }} value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 6 }}>
+        <Button variant="secondary" onClick={onClose}>Cancelar</Button>
+        <Button disabled={!subjectId || !date} onClick={() => onSave({ subjectId, contentId, date, notes: notes.trim() })}>Salvar</Button>
+      </div>
+    </Modal>
+  );
+}
+
+/* ============================================================
+   INTERNSHIPS (Estágio)
+   ============================================================ */
+function InternshipsView({ ctx }) {
+  const { data, addItem, editItem, removeItem, semesters, selectedSemesterId } = ctx;
+  const [modal, setModal] = useState(null);
+  const [logModal, setLogModal] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [confirmDeleteLog, setConfirmDeleteLog] = useState(null);
+  const [expanded, setExpanded] = useState(null);
+  const semesterLabel = semesters.find((s) => s.id === selectedSemesterId)?.label || "";
+
+  return (
+    <div>
+      <PageHeader title="Estágio" subtitle={`Acompanhe local, supervisão e carga horária — ${semesterLabel}.`} right={<Button icon="plus" onClick={() => setModal({ mode: "new" })}>Novo estágio</Button>} />
+
+      {data.internships.length === 0 ? (
+        <EmptyState icon="briefcase" title="Nenhum estágio cadastrado neste semestre" subtitle="Cadastre seu estágio para acompanhar local, supervisor(a), dias da semana e a carga horária cumprida." actionLabel="Novo estágio" onAction={() => setModal({ mode: "new" })} />
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {data.internships.map((it) => {
+            const logs = data.internshipLogs.filter((l) => l.internshipId === it.id).sort((a, b) => b.date.localeCompare(a.date));
+            const totalHours = logs.reduce((sum, l) => sum + Number(l.hours || 0), 0);
+            const goal = Number(it.totalHoursRequired || 0);
+            const pct = goal ? Math.min(100, Math.round((totalHours / goal) * 100)) : null;
+            const isOpen = expanded === it.id;
+            return (
+              <div key={it.id} style={{ background: "var(--surface)", border: "1px solid var(--border-soft)", borderRadius: "var(--radius-lg)", padding: 18, boxShadow: "var(--shadow-sm)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ width: 36, height: 36, borderRadius: 10, background: "var(--bg-alt)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--lavender-deep)" }}><Icon name="briefcase" size={17} /></div>
+                    <div>
+                      <div style={{ fontFamily: "'Fraunces', serif", fontSize: 17, fontWeight: 500 }}>{it.local}</div>
+                      <div style={{ fontSize: 12.5, color: "var(--text-mute)" }}>{it.area}{it.supervisorName ? ` · supervisão de ${it.supervisorName}` : ""}</div>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 2 }}>
+                    <IconBtn icon="edit" onClick={() => setModal({ mode: "edit", internship: it })} />
+                    <IconBtn icon="trash" onClick={() => setConfirmDelete(it.id)} />
+                  </div>
+                </div>
+
+                {(it.weekday !== "" && it.weekday != null) && (
+                  <div style={{ fontSize: 12.5, color: "var(--text-soft)", marginTop: 10 }}>
+                    {WEEKDAYS[it.weekday]}{it.startTime ? `, ${it.startTime}${it.endTime ? `–${it.endTime}` : ""}` : ""}
+                  </div>
+                )}
+
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 5 }}>
+                    <span style={{ fontWeight: 600 }}>{totalHours}h registradas{goal ? ` de ${goal}h` : ""}</span>
+                    {pct !== null && <span style={{ color: "var(--text-mute)" }}>{pct}%</span>}
+                  </div>
+                  {goal > 0 && (
+                    <div style={{ height: 7, borderRadius: 6, background: "var(--bg-alt)", overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: `${pct}%`, background: "var(--accent-mint)", borderRadius: 6 }} />
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+                  <Button size="sm" icon="plus" onClick={() => setLogModal({ mode: "new", internshipId: it.id })}>Registrar horas</Button>
+                  <Button size="sm" variant="secondary" onClick={() => setExpanded(isOpen ? null : it.id)}>{isOpen ? "Ocultar registros" : `Ver registros (${logs.length})`}</Button>
+                </div>
+
+                {isOpen && (
+                  <div style={{ marginTop: 12, borderTop: "1px solid var(--border-soft)", paddingTop: 12 }}>
+                    {logs.length === 0 ? <EmptyRow text="Nenhum registro de horas ainda." /> : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                        {logs.map((l, i) => (
+                          <div key={l.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 4px", borderBottom: i < logs.length - 1 ? "1px solid var(--border-soft)" : "none" }}>
+                            <span style={{ fontSize: 12.5, fontWeight: 700, color: "var(--text-soft)", minWidth: 56 }}>{fmtDate(l.date)}</span>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              {l.activity && <div style={{ fontSize: 13, color: "var(--text)" }}>{l.activity}</div>}
+                              {l.notes && <div style={{ fontSize: 11.5, color: "var(--text-mute)" }}>{l.notes}</div>}
+                            </div>
+                            <Badge>{l.hours}h</Badge>
+                            <IconBtn icon="edit" onClick={() => setLogModal({ mode: "edit", internshipId: it.id, log: l })} />
+                            <IconBtn icon="trash" onClick={() => setConfirmDeleteLog(l.id)} />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <InternshipFormModal open={!!modal} mode={modal?.mode} internship={modal?.internship} onClose={() => setModal(null)}
+        onSave={(vals) => { modal.mode === "new" ? addItem("internships", { ...vals, semesterId: selectedSemesterId }) : editItem("internships", modal.internship.id, vals); setModal(null); }} />
+
+      <InternshipLogFormModal open={!!logModal} mode={logModal?.mode} log={logModal?.log} onClose={() => setLogModal(null)}
+        onSave={(vals) => { logModal.mode === "new" ? addItem("internshipLogs", { ...vals, internshipId: logModal.internshipId }) : editItem("internshipLogs", logModal.log.id, vals); setLogModal(null); }} />
+
+      <ConfirmDialog open={!!confirmDelete} onCancel={() => setConfirmDelete(null)} message="Este estágio e todos os registros de horas vinculados a ele serão excluídos permanentemente."
+        onConfirm={() => { removeItem("internships", confirmDelete); setConfirmDelete(null); }} />
+      <ConfirmDialog open={!!confirmDeleteLog} onCancel={() => setConfirmDeleteLog(null)} message="Este registro de horas será excluído permanentemente."
+        onConfirm={() => { removeItem("internshipLogs", confirmDeleteLog); setConfirmDeleteLog(null); }} />
+    </div>
+  );
+}
+
+function InternshipFormModal({ open, mode, internship, onClose, onSave }) {
+  const [local, setLocal] = useState("");
+  const [area, setArea] = useState("");
+  const [supervisorName, setSupervisorName] = useState("");
+  const [weekday, setWeekday] = useState("");
+  const [startTime, setStartTime] = useState("");
+  const [endTime, setEndTime] = useState("");
+  const [totalHoursRequired, setTotalHoursRequired] = useState("");
+  const [notes, setNotes] = useState("");
+
+  useEffect(() => {
+    if (open) {
+      setLocal(internship?.local || "");
+      setArea(internship?.area || "");
+      setSupervisorName(internship?.supervisorName || "");
+      setWeekday(internship?.weekday ?? "");
+      setStartTime(internship?.startTime || "");
+      setEndTime(internship?.endTime || "");
+      setTotalHoursRequired(internship?.totalHoursRequired ?? "");
+      setNotes(internship?.notes || "");
+    }
+  }, [open, internship]);
+
+  return (
+    <Modal open={open} onClose={onClose} title={mode === "new" ? "Novo estágio" : "Editar estágio"}>
+      <Field label="Local / instituição"><input style={fieldStyle} value={local} onChange={(e) => setLocal(e.target.value)} placeholder="Ex: Clínica-Escola de Psicologia" autoFocus /></Field>
+      <Field label="Área / abordagem"><input style={fieldStyle} value={area} onChange={(e) => setArea(e.target.value)} placeholder="Ex: Psicologia Clínica" /></Field>
+      <Field label="Supervisor(a) (opcional)"><input style={fieldStyle} value={supervisorName} onChange={(e) => setSupervisorName(e.target.value)} placeholder="Ex: Prof. Dr. João Lima" /></Field>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+        <Field label="Dia (opcional)"><Select value={weekday === "" ? "" : String(weekday)} onChange={(v) => setWeekday(v === "" ? "" : Number(v))} placeholder="—" options={WEEKDAYS.map((w, i) => ({ value: String(i), label: w }))} /></Field>
+        <Field label="Início"><input type="time" style={fieldStyle} value={startTime} onChange={(e) => setStartTime(e.target.value)} /></Field>
+        <Field label="Término"><input type="time" style={fieldStyle} value={endTime} onChange={(e) => setEndTime(e.target.value)} /></Field>
+      </div>
+      <Field label="Carga horária total exigida (opcional)"><input type="number" min="0" style={fieldStyle} value={totalHoursRequired} onChange={(e) => setTotalHoursRequired(e.target.value)} placeholder="Ex: 300" /></Field>
+      <Field label="Observações (opcional)"><textarea style={{ ...fieldStyle, minHeight: 55, resize: "vertical" }} value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 6 }}>
+        <Button variant="secondary" onClick={onClose}>Cancelar</Button>
+        <Button disabled={!local.trim()} onClick={() => onSave({
+          local: local.trim(), area: area.trim(), supervisorName: supervisorName.trim(), weekday,
+          startTime, endTime, totalHoursRequired: totalHoursRequired === "" ? "" : Number(totalHoursRequired), notes: notes.trim(),
+        })}>Salvar</Button>
+      </div>
+    </Modal>
+  );
+}
+
+function InternshipLogFormModal({ open, mode, log, onClose, onSave }) {
+  const [date, setDate] = useState(todayISO());
+  const [hours, setHours] = useState("");
+  const [activity, setActivity] = useState("");
+  const [notes, setNotes] = useState("");
+
+  useEffect(() => {
+    if (open) {
+      setDate(log?.date || todayISO());
+      setHours(log?.hours ?? "");
+      setActivity(log?.activity || "");
+      setNotes(log?.notes || "");
+    }
+  }, [open, log]);
+
+  return (
+    <Modal open={open} onClose={onClose} title={mode === "new" ? "Registrar horas de estágio" : "Editar registro"}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <Field label="Data"><input type="date" style={fieldStyle} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+        <Field label="Horas"><input type="number" min="0" step="0.5" style={fieldStyle} value={hours} onChange={(e) => setHours(e.target.value)} placeholder="Ex: 4" /></Field>
+      </div>
+      <Field label="Atividade realizada"><input style={fieldStyle} value={activity} onChange={(e) => setActivity(e.target.value)} placeholder="Ex: Atendimento supervisionado" /></Field>
+      <Field label="Observações (opcional)"><textarea style={{ ...fieldStyle, minHeight: 55, resize: "vertical" }} value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 6 }}>
+        <Button variant="secondary" onClick={onClose}>Cancelar</Button>
+        <Button disabled={!date || hours === ""} onClick={() => onSave({ date, hours: Number(hours), activity: activity.trim(), notes: notes.trim() })}>Salvar</Button>
+      </div>
+    </Modal>
+  );
+}
+
+/* ============================================================
+   GRADES (Notas e Desempenho)
+   ============================================================ */
+function GradesView({ ctx }) {
+  const { fullData, editItem } = ctx;
+  const d = fullData;
+
+  const withGrades = d.exams.filter((e) => e.grade !== "" && e.grade != null);
+  const withoutGrades = d.exams.filter((e) => e.grade === "" || e.grade == null);
+  const overallAvg = withGrades.length ? withGrades.reduce((sum, e) => sum + Number(e.grade), 0) / withGrades.length : null;
+
+  const semesterGroups = d.semesters.map((sem) => {
+    const subjIds = new Set(d.subjects.filter((s) => s.semesterId === sem.id).map((s) => s.id));
+    const subjects = d.subjects.filter((s) => subjIds.has(s.id)).map((s) => {
+      const exams = withGrades.filter((e) => e.subjectId === s.id);
+      const avg = exams.length ? exams.reduce((sum, e) => sum + Number(e.grade), 0) / exams.length : null;
+      return { subject: s, exams, avg };
+    }).filter((x) => x.exams.length > 0);
+    const minutes = d.studySessions.filter((ss) => subjIds.has(ss.subjectId)).reduce((sum, ss) => sum + Number(ss.duration || 0), 0);
+    return { semester: sem, subjects, minutes };
+  }).filter((g) => g.subjects.length > 0 || g.minutes > 0);
+
+  const maxMinutes = Math.max(1, ...semesterGroups.map((g) => g.minutes));
+  const totalMinutesAll = d.studySessions.reduce((sum, ss) => sum + Number(ss.duration || 0), 0);
+
+  return (
+    <div>
+      <PageHeader title="Notas e Desempenho" subtitle="Sua trajetória acadêmica completa, do 1º ao 10º semestre." />
+
+      {semesterGroups.length === 0 && withoutGrades.length === 0 ? (
+        <EmptyState title="Nenhum dado acadêmico ainda" subtitle="Cadastre matérias, provas e trabalhos com notas para ver seu desempenho aqui." />
+      ) : (
+        <>
+          {overallAvg !== null && (
+            <div style={{ display: "flex", alignItems: "center", gap: 18, marginBottom: 20, background: "var(--surface)", border: "1px solid var(--border-soft)", borderRadius: "var(--radius-lg)", padding: "18px 22px", boxShadow: "var(--shadow-sm)" }}>
+              <div>
+                <div style={{ fontFamily: "'Fraunces', serif", fontSize: 34, fontWeight: 600, color: overallAvg >= 6 ? "var(--success)" : "var(--danger)" }}>{overallAvg.toFixed(1)}</div>
+                <div style={{ fontSize: 12, color: "var(--text-mute)" }}>média geral · {withGrades.length} avaliação{withGrades.length > 1 ? "ões" : ""}</div>
+              </div>
+              <div style={{ width: 1, height: 40, background: "var(--border-soft)" }} />
+              <div>
+                <div style={{ fontFamily: "'Fraunces', serif", fontSize: 22, fontWeight: 600 }}>{Math.floor(totalMinutesAll / 60)}h {totalMinutesAll % 60}min</div>
+                <div style={{ fontSize: 12, color: "var(--text-mute)" }}>estudadas em todos os semestres</div>
+              </div>
+            </div>
+          )}
+
+          {semesterGroups.length > 0 && (
+            <div style={{ marginBottom: 20 }}>
+              <Panel title="Carga horária por semestre">
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {semesterGroups.map((g) => (
+                    <div key={g.semester.id}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}>
+                        <span style={{ fontWeight: 600 }}>{g.semester.label}</span>
+                        <span style={{ color: "var(--text-mute)" }}>{Math.floor(g.minutes / 60)}h {g.minutes % 60}min</span>
+                      </div>
+                      <div style={{ height: 8, borderRadius: 6, background: "var(--bg-alt)" }}>
+                        <div style={{ height: "100%", width: `${(g.minutes / maxMinutes) * 100}%`, background: "var(--lavender-deep)", borderRadius: 6 }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Panel>
+            </div>
+          )}
+
+          {semesterGroups.filter((g) => g.subjects.length > 0).map((g) => (
+            <div key={g.semester.id} style={{ marginBottom: 20 }}>
+              <div style={{ fontFamily: "'Fraunces', serif", fontSize: 16, fontWeight: 500, marginBottom: 10 }}>{g.semester.label}</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 10 }}>
+                {g.subjects.map((x) => (
+                  <div key={x.subject.id} className="eo-card" style={{ background: "var(--surface)", border: "1px solid var(--border-soft)", borderRadius: "var(--radius-md)", padding: 14, boxShadow: "var(--shadow-sm)" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7 }}><SubjectDot color={x.subject.color} /><span style={{ fontWeight: 600, fontSize: 13.5 }}>{x.subject.name}</span></div>
+                    <div style={{ fontFamily: "'Fraunces', serif", fontSize: 24, fontWeight: 600, color: x.avg >= 6 ? "var(--success)" : "var(--danger)" }}>{x.avg.toFixed(1)}</div>
+                    <div style={{ fontSize: 11.5, color: "var(--text-mute)", marginTop: 2 }}>média de {x.exams.length} avaliação{x.exams.length > 1 ? "ões" : ""}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+
+          {withGrades.length > 0 && (
+            <Panel title="Todas as notas">
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                {withGrades.sort((a, b) => (b.date || "").localeCompare(a.date || "")).map((e, i, arr) => (
+                  <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 6px", borderBottom: i < arr.length - 1 ? "1px solid var(--border-soft)" : "none" }}>
+                    <SubjectDot color={subjectColor(d, e.subjectId)} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13.5, fontWeight: 600 }}>{subjectName(d, e.subjectId)} — {e.type}</div>
+                      <div style={{ fontSize: 12, color: "var(--text-mute)" }}>{fmtDate(e.date)} · {d.semesters.find((s) => s.id === d.subjects.find((sub) => sub.id === e.subjectId)?.semesterId)?.label}</div>
+                    </div>
+                    <Badge bg={e.grade >= 6 ? "var(--success-bg)" : "var(--danger-bg)"} color={e.grade >= 6 ? "var(--success)" : "var(--danger)"}>{e.grade}</Badge>
+                  </div>
+                ))}
+              </div>
+            </Panel>
+          )}
+        </>
+      )}
+
+      {withoutGrades.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <Panel title="Avaliações sem nota">
+            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              {withoutGrades.map((e, i, arr) => (
+                <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 6px", borderBottom: i < arr.length - 1 ? "1px solid var(--border-soft)" : "none" }}>
+                  <SubjectDot color={subjectColor(d, e.subjectId)} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 600 }}>{subjectName(d, e.subjectId)} — {e.type}</div>
+                    <div style={{ fontSize: 12, color: "var(--text-mute)" }}>{e.date ? fmtDate(e.date) : "sem data"}</div>
+                  </div>
+                  <input type="number" step="0.1" placeholder="Nota" style={{ ...fieldStyle, width: 80, padding: "6px 8px" }} onBlur={(ev) => { if (ev.target.value !== "") editItem("exams", e.id, { grade: Number(ev.target.value) }); }} />
+                </div>
+              ))}
+            </div>
+          </Panel>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   SETTINGS (Configurações)
+   ============================================================ */
+function SettingsView({ ctx }) {
+  const { fullData, update, semesters, currentSemesterId, setCurrentSemesterId, setSelectedSemesterId } = ctx;
+  const [userName, setUserName] = useState(fullData.settings.userName || "");
+  const [newSemester, setNewSemester] = useState("");
+  const [confirmDeleteSemester, setConfirmDeleteSemester] = useState(null);
+
+  useEffect(() => setUserName(fullData.settings.userName || ""), [fullData.settings.userName]);
+
+  const save = () => update((prev) => ({ ...prev, settings: { ...prev.settings, userName: userName.trim() } }));
+
+  const addSemester = () => {
+    if (!newSemester.trim()) return;
+    update((prev) => ({ ...prev, semesters: [...prev.semesters, { id: uid(), label: newSemester.trim() }] }));
+    setNewSemester("");
+  };
+
+  const removeSemester = (id) => {
+    update((prev) => {
+      const remaining = prev.semesters.filter((s) => s.id !== id);
+      const fallbackId = remaining[0]?.id || "";
+      const next = {
+        ...prev, semesters: remaining,
+        subjects: prev.subjects.map((s) => (s.semesterId === id ? { ...s, semesterId: fallbackId } : s)),
+        schedule: prev.schedule.map((s) => (s.semesterId === id ? { ...s, semesterId: fallbackId } : s)),
+        internships: prev.internships.map((i) => (i.semesterId === id ? { ...i, semesterId: fallbackId } : i)),
+        vacations: prev.vacations.map((v) => (v.semesterId === id ? { ...v, semesterId: fallbackId } : v)),
+        holidays: prev.holidays.map((h) => (h.semesterId === id ? { ...h, semesterId: fallbackId } : h)),
+        cancelledClasses: prev.cancelledClasses.map((c) => (c.semesterId === id ? { ...c, semesterId: fallbackId } : c)),
+      };
+      next.settings = { ...prev.settings };
+      if (prev.settings.selectedSemesterId === id) next.settings.selectedSemesterId = fallbackId;
+      if (prev.settings.currentSemesterId === id) next.settings.currentSemesterId = fallbackId;
+      return next;
+    });
+    setConfirmDeleteSemester(null);
+  };
+
+  const totalRecords = fullData.subjects.length + fullData.tasks.length + fullData.exams.length + fullData.contents.length + fullData.studySessions.length + fullData.revisions.length + fullData.schedule.length + fullData.internships.length + fullData.absences.length + fullData.vacations.length + fullData.holidays.length;
+  const subjectsInSemester = (id) => fullData.subjects.filter((s) => s.semesterId === id).length;
+
+  return (
+    <div>
+      <PageHeader title="Configurações" subtitle="Personalize sua experiência no Estudo Organizado." />
+      <div style={{ maxWidth: 500, display: "flex", flexDirection: "column", gap: 14 }}>
+        <Panel title="Perfil">
+          <Field label="Como podemos te chamar?">
+            <input style={fieldStyle} value={userName} onChange={(e) => setUserName(e.target.value)} placeholder="Seu nome ou apelido" onBlur={save} onKeyDown={(e) => e.key === "Enter" && save()} />
+          </Field>
+          <div style={{ fontSize: 12.5, color: "var(--text-mute)" }}>Usado na saudação da Visão Geral.</div>
+        </Panel>
+
+        <Panel title="Semestres">
+          <div style={{ fontSize: 12.5, color: "var(--text-mute)", marginBottom: 10 }}>Defina qual semestre está atualmente em andamento e adicione semestres personalizados, se o seu curso tiver duração diferente.</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+            {semesters.map((s) => (
+              <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 10, background: s.id === currentSemesterId ? "var(--bg-alt)" : "var(--bg)" }}>
+                <span style={{ flex: 1, fontSize: 13.5, fontWeight: 600 }}>{s.label}</span>
+                <span style={{ fontSize: 11.5, color: "var(--text-mute)" }}>{subjectsInSemester(s.id)} matéria(s)</span>
+                {s.id === currentSemesterId ? <Badge bg="var(--success-bg)" color="var(--success)">Atual</Badge> :
+                  <Button size="sm" variant="subtle" onClick={() => { setCurrentSemesterId(s.id); setSelectedSemesterId(s.id); }}>Marcar como atual</Button>}
+                {semesters.length > 1 && <IconBtn icon="trash" onClick={() => setConfirmDeleteSemester(s.id)} />}
+              </div>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input style={fieldStyle} value={newSemester} onChange={(e) => setNewSemester(e.target.value)} placeholder="Ex: 9º semestre ou Estágio" onKeyDown={(e) => e.key === "Enter" && addSemester()} />
+            <Button icon="plus" size="sm" onClick={addSemester}>Adicionar</Button>
+          </div>
+        </Panel>
+
+        <Panel title="Seus dados">
+          <div style={{ fontSize: 13.5, color: "var(--text-soft)", lineHeight: 1.7 }}>
+            Você tem <strong>{totalRecords}</strong> registros salvos em todos os semestres: {fullData.subjects.length} matéria(s), {fullData.tasks.length} tarefa(s), {fullData.exams.length} avaliação(ões), {fullData.contents.length} conteúdo(s), {fullData.studySessions.length} sessão(ões) de estudo, {fullData.revisions.length} revisão(ões), {fullData.schedule.length} aula(s) na grade, {fullData.internships.length} estágio(s), {fullData.absences.length} registro(s) de falta e {fullData.vacations.length} período(s) de férias.
+            <br /><br />
+            Todos os dados ficam salvos automaticamente e persistem entre acessos, ficando disponíveis apenas para você.
+          </div>
+        </Panel>
+
+        <Panel title="Suporte">
+          <div style={{ fontSize: 13.5, color: "var(--text-soft)", lineHeight: 1.7 }}>
+            Precisa de ajuda ou encontrou um problema? Fale com a gente:
+            <br />
+            <a href="mailto:plamailypainelfinanceiro@gmail.com" style={{ color: "var(--lavender-deep)", fontWeight: 700, textDecoration: "none" }}>plamailypainelfinanceiro@gmail.com</a>
+          </div>
+        </Panel>
+      </div>
+
+      <ConfirmDialog open={!!confirmDeleteSemester} onCancel={() => setConfirmDeleteSemester(null)}
+        message="As matérias vinculadas a este semestre serão movidas para outro semestre da lista, sem perder nenhum dado. Esta ação não pode ser desfeita."
+        onConfirm={() => removeSemester(confirmDeleteSemester)} />
+    </div>
+  );
+}
+
+      ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+    </script>
+
+    <script>
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", () => {
+          navigator.serviceWorker.register("./sw.js").catch(console.error);
+        });
+      }
+    </script>
+  </body>
+</html>
